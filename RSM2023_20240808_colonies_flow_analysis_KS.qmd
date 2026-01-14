@@ -1,0 +1,962 @@
+---
+title: "RSM2023_20240808_colonies_flow_analysis_KS"
+author: "KSzade"
+format: html
+editor: visual
+---
+
+```{r}
+
+```
+
+```{r}
+library(ggplot2)
+library(umap)
+library(factoextra)
+library(dbscan)
+library(reshape2)
+library(dplyr)
+library(tidyr)
+```
+
+## Reading data in
+
+Data was merged manually in excel (Jadzia files has seperate excles data for each timepoint and also seperate for % of live and % of parent.\
+Finally, here 4 timepoints after mobil (GCSF or CoPP), control NaCl incluced in first and last timepoint, data include freq of live and freq of parent.
+
+In excel I changed the % in to normal number values, otherwise it reads it as text.
+
+```{r}
+setwd("~/Documents/LAB/PROJECTS/RSM2023/RSM2023_HSC colonies_summary")
+data <-read.csv("RSM2023_HSC_colonies_flow_merged.csv")
+head(data)
+```
+
+Looks like we have some NA inside, changing NA to zero
+
+```{r}
+data[is.na(data)] <- 0
+head(data)
+```
+
+Now let's try to do PCA on all genes, see if there are any clusters, and if there are any changes between NaCl and any other group.
+
+First trying to do PCA. Data from column 7 to the end possess flow data, normalized.
+
+Checking the dimensions of the data frame
+
+```{r}
+dim(data)
+```
+
+So we have 83 columns, for the moment keeping all data in dataGG df as it has some addtional info from prcomp PCA analysis. Changing the timepoint as character to make the graph.
+
+```{r}
+
+PCA <- prcomp(data[,7:83], scale = F)
+
+percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
+
+dataGG = data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2], 
+                    PC3 = PCA$x[,3], PC4 = PCA$x[,4])
+
+dataGG <- cbind(dataGG,data)
+dataGG[,"timepoint"] <- as.character(dataGG[,"timepoint"])
+
+a = ggplot(data = dataGG, aes(x = PC1, y = PC2))
+a+geom_point(aes(color = treatment, shape = timepoint), size = 2) + theme_light()
+```
+
+First look not impressive but colonies on the right definitely looks more enriched in GCSF and CoPP samples. Now checking the others PC if there also shows smthg.
+
+```{r}
+a = ggplot(data = dataGG, aes(x = PC1, y = PC3))
+a+geom_point(aes(color = treatment, shape = timepoint), size = 2) + theme_light()
+```
+
+```{r}
+a = ggplot(data = dataGG, aes(x = PC2, y = PC3))
+a+geom_point(aes(color = treatment, shape = timepoint), size = 2) + theme_light()
+```
+
+```{r}
+a = ggplot(data = dataGG, aes(x = PC3, y = PC4))
+a+geom_point(aes(color = treatment, shape = timepoint), size = 2) + theme_light()
+```
+
+The PC1 vs PC3 quite ok, but the rest comparison is less informative. Ok to see how many PC we should use for clustering lets try to see elbow.
+
+```{r}
+
+# Extract standard deviations
+sdev <- PCA$sdev
+
+# Calculate variance explained by each PC
+var_explained <- sdev^2 / sum(sdev^2)
+
+# Create a bar plot of variance explained by each PC
+barplot(var_explained, 
+        main = "Proportion of Variance Explained by Each PC",
+        xlab = "Principal Component",
+        ylab = "Proportion of Variance Explained",
+        names.arg = paste0("PC", 1:length(var_explained)),
+        col = "blue")
+
+```
+
+Ok, so here we see that we can use smth up to 20 PCs
+
+Anyway before clustering let's check two things - what is the effect of scaling in PCA, and if when we use only the freq of live as variables, so limit the number of variables to the presumably most informative one will it segregate better.
+
+First looking on scaling:
+
+```{r}
+PCA_scale <- prcomp(data[,7:83], scale = T)
+
+percentVar <- round(100*PCA_scale$sdev^2/sum(PCA_scale$sdev^2),1)
+
+dataGG_scale = data.frame(PC1 = PCA_scale$x[,1], PC2 = PCA_scale$x[,2], 
+                    PC3 = PCA_scale$x[,3], PC4 = PCA_scale$x[,4])
+
+dataGG_scale <- cbind(dataGG_scale,data)
+dataGG_scale[,"timepoint"] <- as.character(dataGG_scale[,"timepoint"])
+
+a = ggplot(data = dataGG_scale, aes(x = PC1, y = PC2))
+a+geom_point(aes(color = treatment, shape = timepoint), size = 2) + theme_light()
+```
+
+Ok, so clearly we have an effect and it looks better with scaling, so let's use scaling in the next analysis, where we use only live freq.
+
+Let's check what columns have freq of live cells.
+
+```{r}
+colnames(data)
+```
+
+Ok looks like up to column 44 we have data from freq of live and at the end some additional FSC/SSC gates. So making the pca only on those.
+
+```{r}
+PCA_live <- prcomp(data[,7:44], scale = T)
+
+percentVar <- round(100*PCA_live$sdev^2/sum(PCA_live$sdev^2),1)
+
+dataGG_live = data.frame(PC1 = PCA_live$x[,1], PC2 = PCA_live$x[,2], 
+                    PC3 = PCA_live$x[,3], PC4 = PCA_live$x[,4])
+
+dataGG_live <- cbind(dataGG_live,data)
+dataGG_live[,"timepoint"] <- as.character(dataGG_live[,"timepoint"])
+
+a = ggplot(data = dataGG_live, aes(x = PC1, y = PC2))
+a+geom_point(aes(color = treatment, shape = timepoint), size = 2) + theme_light()
+```
+
+That looks bit stronger, but not sure if better.
+
+OK, maybe UMAP will catch it better.
+
+```{r}
+library("umap")
+```
+
+```{r}
+# Extract the relevant columns for UMAP
+data_for_umap <- data[, 7:83]
+# Run UMAP
+umap_result <- umap(data_for_umap)
+
+# Combine UMAP results with treatment and timepoint
+umap_data <- as.data.frame(umap_result$layout)
+umap_data$treatment <- data$treatment
+umap_data$timepoint <- data$timepoint
+
+# Plot UMAP results
+ggplot(umap_data, aes(x = V1, y = V2, color = treatment)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP of Data", x = "UMAP1", y = "UMAP2") +
+  facet_wrap(~timepoint) +
+  theme_minimal()
+
+
+```
+
+Hmm looks interesting now let's see combined timepoints
+
+```{r}
+# Plot UMAP results
+ggplot(umap_data, aes(x = V1, y = V2, color = treatment)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP of Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+```
+
+Interesting some regions are only in mice previously mobilized, and also it differs between time points.
+
+Lets see if we can find some clusters here
+
+```{r}
+# Install and load required package
+library(factoextra)
+```
+
+```{r}
+umap_data_combined <- umap_data[, 1:2]  # Assuming UMAP results are in columns 1 and 2
+
+# Compute and plot wss for k = 1 to k = 10
+fviz_nbclust(umap_data_combined, kmeans, method = "wss")
+
+# Run k-means algorithm with an optimal number of clusters (say k=4)
+set.seed(123)  # for reproducibility
+kmeans_result <- kmeans(umap_data_combined, centers = 7, nstart = 25)
+umap_data_combined$cluster <- as.factor(kmeans_result$cluster)
+
+ggplot(umap_data_combined, aes(x = V1, y = V2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "K-Means Clustering on UMAP Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+```
+
+4 clusters looks poor, but 7 seems more sensible
+
+Now Hierachical clustering
+
+```{r}
+dist_matrix <- dist(umap_data_combined)
+hclust_result <- hclust(dist_matrix, method = "ward.D2")
+# Cut the tree into 4 clusters
+umap_data_combined$cluster <- cutree(hclust_result, k = 7)
+plot(hclust_result)
+rect.hclust(hclust_result, k = 7, border = 2:5)
+ggplot(umap_data_combined, aes(x = V1, y = V2, color = factor(cluster))) +
+  geom_point(size = 2) +
+  labs(title = "Hierarchical Clustering on UMAP Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+```
+
+Looks the same as k means
+
+Lets try the DBScan as suggested by Chat
+
+```{r}
+
+library(dbscan)
+
+```
+
+```{r}
+# Choose an appropriate epsilon and minimum number of points (minPts)
+dbscan_result <- dbscan(umap_data_combined, eps = 0.5, minPts = 5)
+umap_data_combined$cluster <- as.factor(dbscan_result$cluster)
+
+```
+
+```{r}
+ggplot(umap_data_combined, aes(x = V1, y = V2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+```
+
+Oh nice, DB Scan looks the best of it.
+
+Now let's see if we can improve smthg by reducing the dimension first by PCA and than make UMAP and clustering.
+
+```{r}
+# Apply PCA
+pca_result <- prcomp(data[, 7:83], scale. = TRUE)
+
+# Take the first few principal components (e.g., first 10)
+pca_data <- as.data.frame(pca_result$x[, 1:10])
+
+# Run UMAP on the PCA-reduced data
+set.seed(123)
+umap_result <- umap(pca_data)
+
+# Combine UMAP results with treatment and timepoint data
+umap_data <- as.data.frame(umap_result$layout)
+colnames(umap_data) <- c("UMAP1", "UMAP2")
+umap_data$treatment <- data$treatment
+umap_data$timepoint <- data$timepoint
+
+# Plot UMAP results, colored by treatment
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = treatment)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP on PCA-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+# Optionally, you can also color by timepoint
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = timepoint)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP on PCA-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+# Or facet by timepoint
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = treatment)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP on PCA-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ timepoint)
+```
+
+That does not looks much better, but let's check
+
+```{r}
+set.seed(123)
+dbscan_result <- dbscan(umap_data[, c("UMAP1", "UMAP2")], eps = 0.47, minPts = 10)
+
+# Add cluster results to the data frame
+umap_data$cluster <- as.factor(dbscan_result$cluster)
+
+# Plot UMAP results with DBSCAN clusters
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+# Optionally, you can facet the plot by timepoint or treatment
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster, shape = treatment)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data by Timepoint", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ timepoint)
+```
+
+Now let see the same but only for % of live gating
+
+```{r}
+# Apply PCA
+pca_result <- prcomp(data[, 7:44], scale. = TRUE)
+
+# Take the first few principal components (e.g., first 10)
+pca_data <- as.data.frame(pca_result$x[, 1:10])
+
+# Run UMAP on the PCA-reduced data
+set.seed(123)
+umap_result <- umap(pca_data)
+
+# Combine UMAP results with treatment and timepoint data
+umap_data <- as.data.frame(umap_result$layout)
+colnames(umap_data) <- c("UMAP1", "UMAP2")
+umap_data$treatment <- data$treatment
+umap_data$timepoint <- data$timepoint
+
+# Plot UMAP results, colored by treatment
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = treatment)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP on PCA-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+# Optionally, you can also color by timepoint
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = timepoint)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP on PCA-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+# Or facet by timepoint
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = treatment)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP on PCA-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ timepoint)
+
+set.seed(123)
+dbscan_result <- dbscan(umap_data[, c("UMAP1", "UMAP2")], eps = 0.47, minPts = 10)
+
+# Add cluster results to the data frame
+umap_data$cluster <- as.factor(dbscan_result$cluster)
+
+# Plot UMAP results with DBSCAN clusters
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+# Optionally, you can facet the plot by timepoint or treatment
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster, shape = treatment)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data by Timepoint", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ timepoint)
+```
+
+Now that looks pretty ok, now lets look what are the markers for each cluster.
+
+```{r cluster}
+# Assign DBSCAN cluster labels to the original data
+data$cluster <- as.factor(dbscan_result$cluster)
+
+# Initialize a list to store significant markers for each cluster
+markers <- list()
+
+# Loop over each cluster
+for (clust in levels(data$cluster)) {
+  # Subset data for the current cluster and the rest
+  cluster_data <- data[data$cluster == clust, 7:44]
+  rest_data <- data[data$cluster != clust, 7:44]
+  
+  # Initialize vector to store p-values
+  pvals <- numeric(ncol(cluster_data))
+  
+  # Apply t-test or Wilcoxon test to each variable
+  for (i in 1:ncol(cluster_data)) {
+    # Extract the variable for testing
+    x <- cluster_data[, i]
+    y <- rest_data[, i]
+    
+    # Check if both groups have more than 2 observations
+    if (length(x) > 2 && length(y) > 2) {
+      # Perform t-test if the sample size is sufficient
+      test_result <- try(t.test(x, y), silent = TRUE)
+      # If t-test fails, perform Wilcoxon test as a fallback
+      if (inherits(test_result, "try-error")) {
+        pvals[i] <- wilcox.test(x, y)$p.value
+      } else {
+        pvals[i] <- test_result$p.value
+      }
+    } else {
+      # Assign NA if there are not enough observations
+      pvals[i] <- NA
+    }
+  }
+  
+  # Adjust p-values for multiple testing
+  pvals_adj <- p.adjust(pvals, method = "BH")
+  
+  # Store markers with significant adjusted p-values (e.g., p < 0.05)
+  markers[[clust]] <- colnames(data)[7:44][pvals_adj < 0.05 & !is.na(pvals_adj)]
+}
+
+# View markers for each cluster
+markers
+
+```
+
+That doesn't say a lot, let see how the each gate looks on UMAP.
+
+```{r}
+# umap_result <- umap(pca_result$x) UMAP result are done higher keep this
+
+# Combine UMAP coordinates with your data
+umap_data <- as.data.frame(umap_result$layout)
+colnames(umap_data) <- c("UMAP1", "UMAP2")
+umap_data <- cbind(umap_data, data[, c(7:44)])  # Add the marker data columns
+
+
+```
+
+```{r}
+
+
+marker_columns <- colnames(data)[7:44]  # List of marker columns
+
+# Generate and save UMAP plots for each marker
+for (marker in marker_columns) {
+  plot <- ggplot(umap_data, aes_string(x = "UMAP1", y = "UMAP2", color = marker)) +
+    geom_point(size = 2) +
+    scale_color_viridis_c() +
+    labs(title = paste("UMAP Projection with", marker, "Expression"),
+         color = marker) +
+    theme_minimal()
+  
+  # Save the plot
+  ggsave(filename = paste0("UMAP_", marker, ".png"), plot = plot, width = 10, height = 8)
+}
+```
+
+Above shows very important thing about clusters, pasted selected from the output files.
+
+![](images/UMAP_GMP_1.png)
+
+Now let's first show the % of Ckit + and CKit- as the most discriminating factor.
+
+```{r}
+# Aggregate the data by cluster and cKit status
+library(dplyr)
+prop_data <- data %>%
+  group_by(cluster) %>%
+  summarize(cKit_neg = sum(cKit_neg), 
+            cKit_pos = sum(cKit_pos)) %>%
+  pivot_longer(cols = c("cKit_neg", "cKit_pos"), 
+               names_to = "cKit_status", 
+               values_to = "count")
+
+# Calculate proportions within each cluster
+prop_data <- prop_data %>%
+  group_by(cluster) %>%
+  mutate(proportion = count / sum(count))
+
+# Create stacked bar plot
+ggplot(prop_data, aes(x = factor(cluster), y = proportion, fill = cKit_status)) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Proportion of cKit_neg and cKit_pos in Each Cluster",
+       x = "Cluster",
+       y = "Proportion",
+       fill = "cKit Status") +
+  theme_minimal()
+```
+
+Now the same may be better visible in violin plots
+
+```{r}
+ggplot(data, aes(x = cluster, y = cKit_pos, fill = cluster)) +
+  geom_violin(trim = TRUE) +  # Create the violin plot
+    stat_summary(fun = mean, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "Distribution of cKit_pos in Each Cluster",
+       x = "Cluster",
+       y = "cKit_pos") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(data, aes(x = cluster, y = GMP_1, fill = cluster)) +
+  geom_violin(trim = TRUE) +  # Create the violin plot
+    stat_summary(fun = mean, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "Distribution of GMP_1 (CD34 pos)in Each Cluster",
+       x = "Cluster",
+       y = "GMP_1") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+ggplot(data, aes(x = cluster, y = GMP_2, fill = cluster)) +
+  geom_violin(trim = TRUE) +  # Create the violin plot
+    stat_summary(fun = mean, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "Distribution of GMP_2 (CD34 neg) in Each Cluster",
+       x = "Cluster",
+       y = "GMP_2") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+ggplot(data, aes(x = cluster, y = GMP_2 + GMP_1, fill = cluster)) +
+  geom_violin(trim = TRUE) +  # Create the violin plot
+    stat_summary(fun = mean, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "Distribution of all GMPs (CD34 neg and pos ) in Each Cluster",
+       x = "Cluster",
+       y = "all GMPs") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+That's nicely shows that that there are clusters highly enriched in GMPs phenotype that cosntitute a major percentage of the colonies
+
+```{r}
+ggplot(data, aes(x = cluster, y = CMP_1, fill = cluster)) +
+  geom_violin(trim = TRUE) +  # Create the violin plot
+    stat_summary(fun = mean, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "Distribution of all GMPs (CD34 neg and pos ) in Each Cluster",
+       x = "Cluster",
+       y = "CMP_1") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+However the % of cells with CMP phenotype is low.
+
+Let's see if this looks better on jitter plot
+
+```{r}
+ggplot(data, aes(x = cluster, y = GMP_2 + GMP_1, color = cluster)) +
+  geom_jitter() +  # Create the scatter plot
+    stat_summary(fun = median, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "Distribution of all GMPs (CD34 neg and pos ) in Each Cluster",
+       x = "Cluster",
+       y = "all GMPs") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Now I want to somehow see how multipotent there are. The potential criteria are:
+
+-   presence of erythroid cells (E)
+
+-   presence of neutorphiles (N)
+
+-   presence of monocytes (M)
+
+-   presence of thrombo lineage (T)
+
+Based on the previous graphes (exported to files here pasted selected) we can try to select what gates can be used to judge this criteria.
+
+For the erythroid I think this looks good:
+
+![](images/UMAP_Q1_CD150neg_CD105pos.png)
+
+![](images/UMAP_CD16_32neg_CD71hi.png)
+
+```{r}
+hist(data$Q1_CD150neg_CD105pos)
+```
+
+This might be for trombo lineage:
+
+![](images/UMAP_Q3_CD150pos_CD105neg.png)
+
+This gate shows the direction toward other than myeloid direction, mostly erythroid/thrombo lineages however, final late differentiation is much less efective (eg. CD71+Ter119low)
+
+![](images/UMAP_non_mielo.png)
+
+Non myeloid show skewage:
+
+In general coclusion till now:
+
+Cluster 7 - the most GMP skewed
+
+Cluster 2- GMP skewed with a bit more differentiated cells. Let's see what is a difference
+
+```{r 6}
+ggplot(data, aes(x = cluster, y = Q1_CD150neg_CD105pos, color = cluster)) +
+  geom_jitter() +  # Create the scatter plot
+    stat_summary(fun = median, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "Distribution of Q1_CD150neg_CD105pos in Each Cluster",
+       x = "Cluster",
+       y = "Q1_CD150neg_CD105pos") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+```
+
+```{r 5}
+ggplot(data, aes(x = cluster, y = CD16_32neg_CD71hi, color = cluster)) +
+  geom_jitter() +  # Create the scatter plot
+    stat_summary(fun = median, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "CD16_32_neg_CD71_high in Each Cluster",
+       x = "Cluster",
+       y = "CD16_32_neg_CD71_high") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+```{r 4}
+ggplot(data, aes(x = cluster, y = CD71pos_Ter119low, color = cluster)) +
+  geom_jitter() +  # Create the scatter plot
+    stat_summary(fun = median, geom = "errorbar", aes(ymin = ..y.., ymax = ..y..), color = "black", width = 0.3) +  # Add mean as lines
+  labs(title = "CD71pos_Ter119low",
+       x = "Cluster",
+       y = "CD71pos_Ter119low") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Ann attempt to make plots automatically through the clusters and save as pdf
+
+```{r 3}
+# Load necessary libraries
+library(ggplot2)
+library(gridExtra)
+
+# Assuming your data frame is named 'data'
+# Extract the relevant columns for plotting
+plot_data <- data[, 7:44]
+
+# Initialize an empty list to store the plots
+plots <- list()
+
+# Loop through each variable and create a jitter plot
+for (i in 1:ncol(plot_data)) {
+  p <- ggplot(data, aes_string(x = "cluster", y = colnames(plot_data)[i], color = "cluster")) +
+    geom_jitter(width = 0.2, height = 0) +
+    labs(title = colnames(plot_data)[i]) +
+    theme_minimal()
+  
+  # Add the plot to the list
+  plots[[i]] <- p
+}
+
+# Arrange and save plots (5 plots per row)
+num_plots <- length(plots)
+plots_per_page <- 5
+num_pages <- ceiling(num_plots / plots_per_page)
+
+for (page in 1:num_pages) {
+  start <- (page - 1) * plots_per_page + 1
+  end <- min(page * plots_per_page, num_plots)
+  
+  # Arrange the plots in a grid with portrait orientation
+  grid_plot <- grid.arrange(grobs = plots[start:end], ncol = 1, nrow = 5)
+  
+  # Save each page as a separate PDF in portrait orientation
+  ggsave(paste0("Jitter_Plots_Page_", page, ".pdf"), grid_plot, width = 8, height = 14)
+}
+
+```
+
+```{r 2}
+# Assuming your data frame is named 'data'
+# Calculate the distribution of 'treatment' across 'clusters'
+distribution_table <- table(data$cluster, data$treatment)
+
+# Print the distribution table
+print(distribution_table)
+
+# Perform Chi-Square Test of Independence
+chi_square_test <- chisq.test(distribution_table)
+
+# Print the test results
+print(chi_square_test)
+
+
+```
+
+```{r 1}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+
+# Prepare the data
+# Count the number of occurrences of each treatment group in each cluster
+cluster_treatment_counts <- data %>%
+  group_by(cluster, treatment) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Total number of observations for each treatment across all clusters
+total_treatment_counts <- data %>%
+  group_by(treatment) %>%
+  summarise(total_count = n()) %>%
+  ungroup()
+
+# Total number of observations in each cluster
+total_cluster_counts <- data %>%
+  group_by(cluster) %>%
+  summarise(total_count = n()) %>%
+  ungroup()
+
+# Total number of observations
+total_observations <- nrow(data)
+
+# Perform the Hypergeometric test
+results <- cluster_treatment_counts %>%
+  left_join(total_treatment_counts, by = "treatment") %>%
+  left_join(total_cluster_counts, by = "cluster") %>%
+  rowwise() %>%
+  mutate(p_value = phyper(count - 1, total_count.y, total_observations - total_count.y, total_count.x, lower.tail = FALSE)) %>%
+  ungroup()
+
+# Adjust p-values for multiple testing using the Benjamini-Hochberg method
+results <- results %>%
+  mutate(adjusted_p_value = p.adjust(p_value, method = "BH"))
+
+# Print significant results
+significant_results <- results %>%
+  filter(adjusted_p_value < 0.05)
+
+print(significant_results)
+
+```
+
+```{r adding column merging CoPP and GCSF treatment}
+
+data$treatment_combine <- ifelse(data$treatment %in% c("GCSF", "CoPP"), 
+                               "Mobilisation", 
+                               data$treatment)
+```
+
+```{r making the graph by timepoint and day}
+
+# Not sure why but after restart I'm missing treatment and timepoint cluster in my umap data adding again 
+
+umap_data$treatment <- data$treatment
+umap_data$timepoint <- data$timepoint
+umap_data$treatment_combine <- data$treatment_combine
+umap_data$cluster <- as.factor(dbscan_result$cluster)
+
+
+# Optionally, you can facet the plot by timepoint or treatment
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster, shape = treatment_combine)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data by Timepoint", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ timepoint)
+
+```
+
+```{r merging treatment and timepoint as one value}
+
+
+data$group_combined <- ifelse(data$treatment_combine == "NaCl", 
+                        "NaCl", 
+                        ifelse(data$treatment_combine == "Mobilisation", 
+                               paste("Mobilisation", data$timepoint, sep = "_"), 
+                               NA))  # You can replace NA with a default value if needed
+
+```
+
+```{r making new graphs based on combined groups}
+
+# adding the data to the umap data frame 
+
+umap_data$group_combined <- data$group_combined
+
+# Reorder group_combined so that "NaCl" appears first
+umap_data$group_combined <- factor(umap_data$group_combined, levels = c("NaCl", unique(umap_data$group_combined)[unique(umap_data$group_combined) != "NaCl"]))
+
+# Generate the plots with all in one row
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data by Timepoint", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ group_combined, nrow = 1)
+
+```
+
+```{r analyzing the percentage of cells in given cluster}
+
+# Calculate percentage of cells per cluster in each group_combined
+percentage_data <- umap_data %>%
+  group_by(group_combined, cluster) %>%
+  summarise(n_cells = n()) %>%
+  group_by(group_combined) %>%
+  mutate(total_cells = sum(n_cells), 
+         percent_cells = (n_cells / total_cells) * 100) %>%
+  ungroup()
+
+# Jitter plot showing % of cells in each cluster for each group_combined
+ggplot(percentage_data, aes(x = cluster, y = percent_cells, color = group_combined)) +
+  geom_jitter(width = 0.2, size = 2) +
+  labs(title = "Percentage of Cells in Each Cluster by Group",
+       x = "Cluster", y = "Percentage of Cells") +
+  theme_minimal()
+
+# Perform pairwise Wilcoxon tests comparing "NaCl" to each other group for each cluster
+stat_results <- percentage_data %>%
+  group_by(cluster) %>%
+  group_modify(~ {
+    # Get the unique treatment groups excluding "NaCl"
+    other_groups <- unique(.x$group_combined[.x$group_combined != "NaCl"])
+    
+    # Initialize a result storage for p-values
+    result <- data.frame(group_combined_other = other_groups,
+                         p_value = NA)
+    
+    # Iterate over other groups and perform the Wilcoxon test
+    for (group in other_groups) {
+      # Subset the data for "NaCl" and the current group
+      test_data <- .x %>% filter(group_combined %in% c("NaCl", group))
+      
+      # Only perform the test if there are exactly 2 levels in group_combined
+      if (length(unique(test_data$group_combined)) == 2) {
+        result$p_value[result$group_combined_other == group] <- wilcox.test(percent_cells ~ group_combined, data = test_data)$p.value
+      }
+    }
+    
+    # Return the result for this group
+    result
+  }) %>%
+  ungroup()
+
+# View the p-values for the comparisons
+print(stat_results)
+```
+
+```{r}
+# Create line plots for each cluster with black lines and a 2x4 grid
+ggplot(percentage_data, aes(x = group_combined, y = percent_cells, group = 1)) +
+  geom_line(color = "black", size = 1) +  # Black line
+  geom_point(size = 2) +  # Points on the line
+  labs(title = "Percentage of Cells in Each Group by Cluster",
+       x = "Group",
+       y = "Percentage of Cells") +
+  theme_minimal() +
+  facet_wrap(~ cluster, nrow = 2, ncol = 4, scales = "free_x")  # 2 rows, 4 columns
+```
+
+This look really nice but we need to correct missing groups in cluster 3
+
+```{r making graphs showing percentage in given graph}
+
+
+# Create a complete set of combinations for clusters and groups
+all_combinations <- expand.grid(
+  cluster = unique(percentage_data$cluster),
+  group_combined = unique(percentage_data$group_combined)
+)
+
+# Join the complete combinations with the original data
+percentage_data_complete <- all_combinations %>%
+  left_join(percentage_data, by = c("cluster", "group_combined")) %>%
+  mutate(percent_cells = ifelse(is.na(percent_cells), 0, percent_cells))  # Replace NA with 0
+
+# Create line plots for each cluster with black lines and a 2x4 grid
+ggplot(percentage_data_complete, aes(x = group_combined, y = percent_cells, group = 1)) +
+  geom_line(color = "black", size = 1) +  # Black line
+  geom_point(size = 2) +  # Points on the line
+  labs(title = "Percentage of Cells in Each Group by Cluster",
+       x = "Group",
+       y = "Percentage of Cells") +
+  theme_minimal() +
+  facet_wrap(~ cluster, nrow = 2, ncol = 4, scales = "free_x")  # 2 rows, 4 columns
+```
+
+```{r testing hyper g test for percentage in cluster }
+
+# Step 1: Prepare the data for the hypergeometric test
+
+# Calculate the total number of cells in each group and each cluster
+group_totals <- percentage_data_complete %>%
+  group_by(cluster, group_combined) %>%
+  summarize(total_cells = sum(percent_cells), .groups = 'drop')
+
+# Calculate the total number of cells in each cluster
+total_cells_per_cluster <- percentage_data_complete %>%
+  group_by(cluster) %>%
+  summarize(total_cells_cluster = sum(percent_cells), .groups = 'drop')
+
+# Calculate the number of cells in the "NaCl" group
+na_cl_totals <- percentage_data_complete %>%
+  filter(group_combined == "NaCl") %>%
+  group_by(cluster) %>%
+  summarize(na_cl_cells = sum(percent_cells), .groups = 'drop')
+
+# Step 2: Perform the hypergeometric test
+
+# Function to perform hypergeometric test
+hypergeometric_test <- function(group_cells, total_cells_group, total_cells_cluster, na_cl_cells) {
+  m <- total_cells_cluster  # Total number of cells in the cluster
+  n <- total_cells_group    # Total number of cells in the group
+  k <- na_cl_cells          # Number of cells in the NaCl group
+  x <- group_cells          # Number of cells in the group being tested
+  
+  # Perform the hypergeometric test
+  p_value <- phyper(x - 1, k, m - k, n, lower.tail = FALSE)
+  
+  return(p_value)
+}
+
+# Apply the hypergeometric test for each group and cluster
+results <- percentage_data_complete %>%
+  filter(group_combined != "NaCl") %>%
+  left_join(total_cells_per_cluster, by = "cluster") %>%
+  left_join(na_cl_totals, by = "cluster") %>%
+  rowwise() %>%
+  mutate(p_value = hypergeometric_test(
+    group_cells = percent_cells,
+    total_cells_group = sum(percent_cells[group_combined == group_combined]),
+    total_cells_cluster = total_cells_cluster,
+    na_cl_cells = na_cl_cells
+  )) %>%
+  ungroup()
+
+# Step 3: Correct for multiple comparisons using the BH procedure
+results <- results %>%
+  arrange(p_value) %>%  # Sort by p-value
+  mutate(p_adjusted = p.adjust(p_value, method = "BH"))  # Adjust p-values for multiple comparisons
+
+# View the sorted and adjusted results
+print(results)
+```
+
+```{r exporting data for Jadzie}
+
+data_for_Jadzia <- cbind(data[,1:6],umap_data)
+
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
