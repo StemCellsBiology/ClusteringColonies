@@ -1,0 +1,687 @@
+---
+title: "Clustering colonies exp9 and exp13"
+format: html
+editor: visual
+---
+
+## Loading packages
+
+```{r loading libs}
+
+library("ggplot2")
+library("sva")
+library(harmony)
+library(Seurat)
+library(umap)
+library("dbscan")
+```
+
+\
+
+## Checking the data structure
+
+We have files that have all colonies with
+
+```{r reading data in}
+
+setwd("C:/Users/KWIECINSKAP/Documents/Doświadczenia/Aktualne/ERC/Doświadczenia/exp9&13_colonies") 
+
+exp9_summary <- read.csv2("ERC_aim1_exp9_summary.csv", row.names = 1, sep =";", dec = ".")
+exp13_summary <- read.csv("ERC_aim1_exp13_summary.csv", row.names = 1, dec = ".")
+
+# adding columns to distinguish two experiments 
+exp9_summary[,"exp"] <- 9
+exp13_summary[,"exp"] <- 13
+
+colnames_exp9 <- colnames(exp9_summary)
+colnames_exp13 <- colnames(exp13_summary)
+
+colnames_different_13 <- !(colnames_exp13 %in% colnames_exp9)
+
+colnames_different_names_13 <- colnames_exp13[colnames_different_13]
+
+colnames_different_names_13
+
+colnames_different_9 <- !(colnames_exp9 %in% colnames_exp13)
+
+colnames_different_names_9 <- colnames_exp9[colnames_different_9]
+
+colnames_different_names_9
+
+# correcting the names of low6c_mono
+
+colnames(exp13_summary)[which(colnames(exp13_summary) == "low6C_mono")] <-  "low6c_mono"
+
+merge <- merge(exp13_summary,exp9_summary, all = TRUE) 
+
+colnames(merge)
+```
+
+There is also some inconsistency as some files have APC other Alexa647, the same for PerCP5.5 and BB700. That is important as this can have different signal intensity. We may think of normalizing it later, but for the moment I am not taking the index sorting to analysis.
+
+### Calculating the % of live
+
+The files have number of events in the given gate instead of % of live as we want.
+
+Therefore we need to calculate the percentage rather than total number.
+
+The total output as total number of cells also matters, and can be used (assuming that colonies were acquired with the same time and speed), therefore we will add new columns with percentage.
+
+```{r adding the percentage columns}
+
+
+#checking which columns has data with number of cells in the gates
+
+colnames(merge)
+
+# it starts with "FSC_A_medium_SSC_A_high"
+which(colnames(merge) == "FSC_A_medium_SSC_A_high")
+which(colnames(merge) == "trombo")
+# so its starts from column 20 and ends with 69, and we make names of columns that have data from flow gates
+
+flow_gates <- colnames(merge)[20:69]
+
+for (i in seq_along(flow_gates)) { 
+  gate_col <- flow_gates[i]  # Get column name
+  merge[, paste0(gate_col, "_percent")] <- merge[, gate_col] / merge[, "Live_dead_Ly6C_subset"] * 100
+}
+
+flow_gates_percent <- paste0(flow_gates, "_percent")
+merge[,flow_gates_percent]
+```
+
+## Actual clustering
+
+First do PCA with scaling on percentage flow gate data
+
+```{r PCA  }
+
+# seems like we have some NA or missing values checking this
+sum(is.na(merge[, flow_gates_percent]))  # Count missing values we have 4 
+
+# not sure why, but let's change them to mean from the column
+
+merge[, flow_gates_percent] <- lapply(merge[, flow_gates_percent], function(x) {
+  x[is.na(x)] <- mean(x, na.rm = TRUE)
+  return(x)
+})
+
+sum(is.na(merge[, flow_gates_percent])) # now corrected 
+
+
+# checking the infinitive values 
+data_pca <- as.data.frame(merge[, flow_gates_percent])  # Ensure it's a data frame
+data_pca <- data.matrix(data_pca)  # Convert to numeric matrix
+sum(is.infinite(data_pca))  # Here we are clear 
+
+#Proper PCA 
+PCA_scale <- prcomp(merge[,flow_gates_percent], scale = T)
+
+percentVar <- round(100*PCA_scale$sdev^2/sum(PCA_scale$sdev^2),1)
+
+dataGG_scale = data.frame(PC1 = PCA_scale$x[,1], PC2 = PCA_scale$x[,2], 
+                    PC3 = PCA_scale$x[,3], PC4 = PCA_scale$x[,4])
+
+dataGG_scale <- cbind(dataGG_scale,merge)
+dataGG_scale[,"exp"] <- as.character(dataGG_scale[,"exp"])
+
+a = ggplot(data = dataGG_scale, aes(x = PC1, y = PC2))
+a+geom_point(aes(color = GROUP, shape = exp), size = 2) + theme_light()
+
+```
+
+This shows important thing that experiment 9 and 13 cluster completely independent :(
+
+Either we analyze them seperatly, or we trying to exclude some batch effects. ChatGPT suggested
+
+```{r experiment batch removal }
+
+# Apply ComBat to correct batch effect
+exp_batch_corr <- ComBat(dat = t(merge[, flow_gates_percent]), batch = merge[,"exp"], par.prior = TRUE, prior.plots = FALSE)
+
+# Transpose back to original format
+exp_batch_corr <- t(exp_batch_corr)
+
+# PCA again 
+PCA_scale_corr <- prcomp(exp_batch_corr, scale = T)
+
+percentVar_corr <- round(100*PCA_scale$sdev^2/sum(PCA_scale$sdev^2),1)
+
+dataGG_scale_corr = data.frame(PC1 = PCA_scale_corr$x[,1], PC2 = PCA_scale_corr$x[,2], 
+                    PC3 = PCA_scale_corr$x[,3], PC4 = PCA_scale_corr$x[,4])
+
+dataGG_scale_corr <- cbind(dataGG_scale_corr,merge)
+dataGG_scale_corr[,"exp"] <- as.character(dataGG_scale_corr[,"exp"])
+
+a = ggplot(data = dataGG_scale_corr, aes(x = PC1, y = PC2))
+a+geom_point(aes(color = GROUP, shape = exp), size = 2) + theme_light()
+
+```
+
+Now is better but still batch effect visible, anyway let's try crazy idea and use harmony
+
+```{r normilizing with harmony }
+# Extract data for PCA
+data_pca <- as.data.frame(merge[, flow_gates_percent])  # Ensure it's a data frame
+data_pca <- data.matrix(data_pca)  # Convert to numeric matrix
+
+# Define batch information
+batch_vector <- as.character(merge[, "exp"])  # Convert batch to character
+
+# Replace NA with column mean
+data_pca <- apply(data_pca, 2, function(x) {
+  x[is.na(x)] <- mean(x, na.rm = TRUE)
+  return(x)
+})
+
+# Replace Inf with column mean
+data_pca <- apply(data_pca, 2, function(x) {
+  x[is.infinite(x)] <- mean(x, na.rm = TRUE)
+  return(x)
+})
+
+# Create Seurat object (transpose to match Seurat format)
+seurat_obj <- CreateSeuratObject(counts = t(data_pca))
+
+# Add batch information
+seurat_obj$batch <- batch_vector
+
+# Standardize the data
+seurat_obj <- NormalizeData(seurat_obj)
+
+
+seurat_obj <- FindVariableFeatures(seurat_obj, selection.method = "vst", nfeatures = 2000)
+
+seurat_obj <- ScaleData(seurat_obj)
+
+# Run PCA
+seurat_obj <- RunPCA(seurat_obj, npcs = 15, verbose = FALSE) 
+
+seurat_obj <- RunHarmony(
+  object = seurat_obj,
+  group.by.vars = "batch"
+)
+
+# Get Harmony-adjusted PCA embeddings
+corrected_pca <- Embeddings(seurat_obj, "harmony")
+
+pca_before <- data.frame(
+  PC1 = seurat_obj@reductions$pca@cell.embeddings[, 1],
+  PC2 = seurat_obj@reductions$pca@cell.embeddings[, 2],
+  Batch = factor(batch_vector)
+)
+
+ggplot(pca_before, aes(x = PC1, y = PC2, color = Batch)) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  ggtitle("PCA Before Harmony Correction")
+
+pca_after <- data.frame(
+  PC1 = corrected_pca[, 1],
+  PC2 = corrected_pca[, 2],
+  Batch = factor(batch_vector)
+)
+
+ggplot(pca_after, aes(x = PC1, y = PC2, color = Batch)) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  ggtitle("PCA After Harmony Correction")
+```
+
+The conclusion is harmony is not any better, we need to analyze them separately.
+
+## Analyzing exp 9
+
+As we established in previous analysis, we RUN PCA scaled, than UMAP on selected PCAs, than DBScan
+
+```{r subseting data, running PCA clustering exp 9}
+# given I fixed some things already in merge data frame I am subsetting this one
+data_exp9 <- subset(merge, merge$exp == "9")
+
+# Apply PCA
+pca_result <- prcomp(data_exp9[,flow_gates_percent], scale. = TRUE)
+# Extract the variance explained by each principal component
+variance_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2)  # Squared singular values divided by total variance
+
+# Create a cumulative variance plot (Elbow Plot)
+elbow_plot <- data.frame(
+  PC = 1:length(variance_explained),
+  Variance_Explained = variance_explained,
+  Cumulative_Variance = cumsum(variance_explained)
+)
+
+# Plot Variance Explained by each PC
+library(ggplot2)
+ggplot(elbow_plot, aes(x = PC, y = Variance_Explained)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  ggtitle("Variance Explained by Each Principal Component") +
+  xlab("Principal Component") +
+  ylab("Variance Explained") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Optionally, add the cumulative variance to see the elbow
+ggplot(elbow_plot, aes(x = PC)) +
+  geom_line(aes(y = Cumulative_Variance), color = "red", size = 1) +
+  geom_point(aes(y = Cumulative_Variance), color = "red", size = 2) +
+  theme_minimal() +
+  ggtitle("Cumulative Variance Explained by Principal Components") +
+  xlab("Principal Component") +
+  ylab("Cumulative Variance Explained")
+
+# Take the first few principal components (e.g., first 20)
+pca_data <- as.data.frame(pca_result$x[, 1:20])
+
+# Run UMAP on the PCA-reduced data
+set.seed(123)
+umap_result <- umap(pca_data)
+
+# Combine UMAP results with GROUP
+umap_data <- as.data.frame(umap_result$layout)
+colnames(umap_data) <- c("UMAP1", "UMAP2")
+umap_data$GROUP <- data_exp9$GROUP
+
+# Plot UMAP results, colored by treatment
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = GROUP)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP on PCA-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+
+
+set.seed(123)
+dbscan_result <- dbscan(umap_data[, c("UMAP1", "UMAP2")], eps = 0.46, minPts = 9)
+
+# Add cluster results to the data frame
+umap_data$cluster <- as.factor(dbscan_result$cluster)
+
+
+# Plot UMAP results with DBSCAN clusters
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+# Optionally, you can facet the plot by  treatment
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster, shape = GROUP)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data by Timepoint", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ GROUP)
+
+# Optionally, you can facet the plot by timepoint or treatment with combined GCSF and CoPP as moblized 
+ggplot(umap_data, aes(x = UMAP1, y = UMAP2, color = cluster, shape = GROUP)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data by Timepoint", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ GROUP)
+
+
+```
+
+The first conclusion is we don't see big differences between the groups.
+
+Lets see if we can see some of the marker that can define the clusters
+
+```{r markers exp 9}
+# umap_result <- umap(pca_result$x) UMAP result are done higher keep this
+
+# Combine UMAP coordinates with your data
+umap_data <- as.data.frame(umap_result$layout)
+colnames(umap_data) <- c("UMAP1", "UMAP2")
+umap_data <- cbind(umap_data, data_exp9[,flow_gates_percent])  # Add the marker data columns
+
+
+marker_columns <- flow_gates_percent  # List of marker columns
+
+# Generate and save UMAP plots for each marker
+for (marker in marker_columns) {
+  plot <- ggplot(umap_data, aes_string(x = "UMAP1", y = "UMAP2", color = marker)) +
+    geom_point(size = 2) +
+    scale_color_viridis_c() +
+    labs(title = paste("UMAP Projection with", marker, "Expression"),
+         color = marker) +
+    theme_minimal()
+  
+  # Save the plot
+  ggsave(filename = paste0("UMAP_exp9_", marker, ".png"), plot = plot, width = 10, height = 8)
+}
+
+
+```
+
+## Analyzing exp 13
+
+```{r PCA and clustering exp 13}
+
+# given I fixed some things already in merge data frame I am subsetting this one
+data_exp13 <- subset(merge, merge$exp == "13")
+
+# Apply PCA
+pca_result_exp13 <- prcomp(data_exp13[,flow_gates_percent], scale. = TRUE)
+# Extract the variance explained by each principal component
+variance_explained_exp13 <- pca_result_exp13$sdev^2 / sum(pca_result_exp13$sdev^2)  # Squared singular values divided by total variance
+
+# Create a cumulative variance plot (Elbow Plot)
+elbow_plot_exp13 <- data.frame(
+  PC = 1:length(variance_explained_exp13),
+  Variance_Explained = variance_explained_exp13,
+  Cumulative_Variance = cumsum(variance_explained_exp13)
+)
+
+# Plot Variance Explained by each PC
+library(ggplot2)
+ggplot(elbow_plot_exp13, aes(x = PC, y = Variance_Explained)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  theme_minimal() +
+  ggtitle("Variance Explained by Each Principal Component") +
+  xlab("Principal Component") +
+  ylab("Variance Explained") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Optionally, add the cumulative variance to see the elbow
+ggplot(elbow_plot_exp13, aes(x = PC)) +
+  geom_line(aes(y = Cumulative_Variance), color = "red", size = 1) +
+  geom_point(aes(y = Cumulative_Variance), color = "red", size = 2) +
+  theme_minimal() +
+  ggtitle("Cumulative Variance Explained by Principal Components") +
+  xlab("Principal Component") +
+  ylab("Cumulative Variance Explained")
+
+# Take the first few principal components (e.g., first 20)
+pca_data_exp13 <- as.data.frame(pca_result_exp13$x[, 1:20])
+
+# Run UMAP on the PCA-reduced data
+set.seed(123)
+umap_result_exp13 <- umap(pca_data_exp13)
+
+# Combine UMAP results with GROUP
+umap_data_exp13 <- as.data.frame(umap_result_exp13$layout)
+colnames(umap_data_exp13) <- c("UMAP1", "UMAP2")
+umap_data_exp13$GROUP <- data_exp13$GROUP
+
+# Plot UMAP results, colored by treatment
+ggplot(umap_data_exp13, aes(x = UMAP1, y = UMAP2, color = GROUP)) +
+  geom_point(size = 2) +
+  labs(title = "UMAP on PCA-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+
+
+set.seed(123)
+dbscan_result_exp13 <- dbscan(umap_data_exp13[, c("UMAP1", "UMAP2")], eps = 0.46, minPts = 9)
+
+# Add cluster results to the data frame
+umap_data_exp13$cluster <- as.factor(dbscan_result_exp13$cluster)
+
+
+# Plot UMAP results with DBSCAN clusters
+ggplot(umap_data_exp13, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal()
+
+# Optionally, you can facet the plot by  treatment
+ggplot(umap_data_exp13, aes(x = UMAP1, y = UMAP2, color = cluster, shape = GROUP)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data by Timepoint", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  facet_wrap(~ GROUP)
+
+```
+
+This looks much better seperated than exp 9 lets see the cluster
+
+```{r cluster markers exp 13}
+
+# Combine UMAP coordinates with your data
+umap_data_exp13 <- as.data.frame(umap_result_exp13$layout)
+colnames(umap_data_exp13) <- c("UMAP1", "UMAP2")
+umap_data_exp13 <- cbind(umap_data_exp13, data_exp13[, flow_gates_percent])  # Add the marker data columns
+
+marker_columns <- flow_gates_percent  # List of marker columns
+
+# Generate and save UMAP plots for each marker
+library(ggplot2)
+library(rlang)  # For tidy evaluation
+library(viridis)  # For better color scales
+
+for (marker in marker_columns) {
+  plot <- ggplot(umap_data_exp13, aes(x = UMAP1, y = UMAP2, color = !!sym(marker))) +
+    geom_point(size = 2) +
+    scale_color_viridis_c() +
+    labs(title = paste("UMAP Projection with", marker, "Expression"),
+         color = marker) +
+    theme_minimal()
+  
+  # Save the plot
+  ggsave(filename = paste0("UMAP_exp13_", marker, ".png"), plot = plot, width = 10, height = 8)
+}
+```
+
+```         
+```
+
+Let's if this corresponds with the size or some index data finally
+
+```{r looking in size of colonies among clusters}
+
+
+
+hist(data_exp13$mean.diameter..mm.) # now we see we have some NAs and value that seems like a mistake over 25mm, need to fiox it 
+
+#first change NA to mean value to get rid of it 
+sum(is.na(data_exp13$mean.diameter..mm.)) # there are 13 of them lets fix that 
+
+data_exp13$mean.diameter..mm.[is.na(data_exp13$mean.diameter..mm.)] <- mean(data_exp13$mean.diameter..mm.,na.rm = TRUE) 
+
+
+sum(is.na(data_exp13$mean.diameter..mm.)) # ok fixed 
+
+# now subset one of the mistake with mean value 
+data_exp13$mean.diameter..mm.[data_exp13$mean.diameter..mm. > 25 ] <- mean(data_exp13$mean.diameter..mm.,na.rm = TRUE) 
+
+
+plot <- ggplot(umap_data_exp13, aes_string(x = "UMAP1", y = "UMAP2", color = data_exp13[,"mean.diameter..mm."])) +
+    geom_point(size = 2) +
+    scale_color_viridis_c() +
+    labs(title = paste("UMAP Projection with", "Diameter"),
+         color = data_exp13[,"mean.diameter..mm."]) +
+    theme_minimal()
+
+plot
+```
+
+```{r now looking }
+colnames(umap_data_exp13)
+
+# Assign DBSCAN cluster labels to the original data
+data_exp13$cluster <- as.factor(umap_data_exp13$cluster)
+
+# Initialize a list to store significant markers for each cluster
+markers <- list()
+
+# Loop over each cluster
+for (clust in levels(data_exp13$cluster)) {
+  # Subset data for the current cluster and the rest
+  cluster_data <- umap_data_exp13[umap_data_exp13$cluster == clust, 3:52]
+  rest_data <- umap_data_exp13[umap_data_exp13$cluster != clust, 3:52]
+  
+  # Initialize vector to store p-values
+  pvals <- numeric(ncol(cluster_data))
+  
+  # Apply t-test or Wilcoxon test to each variable
+  for (i in 1:ncol(cluster_data)) {
+    # Extract the variable for testing
+    x <- cluster_data[, i]
+    y <- rest_data[, i]
+    
+    # Check if both groups have more than 2 observations
+    if (length(x) > 2 && length(y) > 2) {
+      # Perform t-test if the sample size is sufficient
+      test_result <- try(t.test(x, y), silent = TRUE)
+      # If t-test fails, perform Wilcoxon test as a fallback
+      if (inherits(test_result, "try-error")) {
+        pvals[i] <- wilcox.test(x, y)$p.value
+      } else {
+        pvals[i] <- test_result$p.value
+      }
+    } else {
+      # Assign NA if there are not enough observations
+      pvals[i] <- NA
+    }
+  }
+  
+  # Adjust p-values for multiple testing
+  pvals_adj <- p.adjust(pvals, method = "BH")
+  
+  # Store markers with significant adjusted p-values (e.g., p < 0.05)
+  markers[[clust]] <- colnames(umap_data_exp13)[3:52][pvals_adj < 0.05 & !is.na(pvals_adj)]
+}
+
+# View markers for each cluster
+markers
+```
+
+```{r attempt to make plots automatically through the clusters and save as pdf}
+
+# Load necessary libraries
+library(ggplot2)
+library(gridExtra)
+
+Attaching package: 'gridExtra'
+The following object is masked from 'package:dplyr':
+
+    combine
+# Assuming your data frame is named 'data_exp13'
+# Extract the relevant columns for plotting
+plot_data <- data_exp13[, 112:161]
+
+# Initialize an empty list to store the plots
+plots <- list()
+
+# Loop through each variable and create a jitter plot
+for (i in 1:ncol(plot_data)) {
+  p <- ggplot(data_exp13, aes_string(x = "cluster", y = colnames(plot_data)[i], color = "cluster")) +
+    geom_jitter(width = 0.2, height = 0) +
+    labs(title = colnames(plot_data)[i]) +
+    theme_minimal()
+  
+  # Add the plot to the list
+  plots[[i]] <- p
+}
+
+# Arrange and save plots (5 plots per row)
+num_plots <- length(plots)
+plots_per_page <- 4
+num_pages <- ceiling(num_plots / plots_per_page)
+
+for (page in 1:num_pages) {
+  start <- (page - 1) * plots_per_page + 1
+  end <- min(page * plots_per_page, num_plots)
+  
+  # Arrange the plots in a grid with portrait orientation
+  grid_plot <- grid.arrange(grobs = plots[start:end], ncol = 1, nrow = 4)
+  
+  # Save each page as a separate PDF in portrait orientation
+  ggsave(paste0("Jitter_Plots_Page_", page, ".pdf"), grid_plot, width = 8, height = 14)
+}
+```
+
+```{r}
+# Assuming your data frame is named 'data_exp13'
+# Calculate the distribution of 'colony.shape' across 'clusters'
+shape_table <- table(data_exp13$cluster, data_exp13$colony.shape)
+
+# Print the distribution table
+print(shape_table)
+```
+
+```{r}
+# Assuming your data frame is named 'data_exp13'
+# Calculate the distribution of 'compact' across 'clusters'
+compact_table <- table(data_exp13$cluster, data_exp13$compact)
+
+# Print the distribution table
+print(compact_table)
+```
+
+```{r}
+# Assuming your data frame is named 'data_exp13'
+# Calculate the distribution of 'dispersed' across 'clusters'
+dispersed_table <- table(data_exp13$cluster, data_exp13$dispersed)
+
+# Print the distribution table
+print(dispersed_table)
+```
+
+```{r cluster colony shapes exp 13}
+# Usuwanie zbędnych spacji z danych dotyczących kształtu
+data_exp13$compact <- trimws(data_exp13$compact)
+data_exp13$dispersed <- trimws(data_exp13$dispersed)
+
+# Dodanie informacji o kształcie kolonii do umap_data_exp13
+umap_data_exp13$colony_shape <- ifelse(!is.na(data_exp13$compact) & data_exp13$compact != "", 
+                                       data_exp13$compact, 
+                                       data_exp13$dispersed)
+# Lista unikalnych typów kolonii
+unique_shapes <- unique(umap_data_exp13$colony_shape)
+
+# Tworzenie i zapisywanie wykresów dla każdego typu kolonii
+for (shape in unique_shapes) {
+  plot <- ggplot(umap_data_exp13, aes(x = UMAP1, y = UMAP2, color = (colony_shape == shape))) +
+    geom_point(size = 2) +
+    scale_color_manual(values = c("FALSE" = "gray80", "TRUE" = "red")) +  # Podświetlenie wybranego typu kolonii
+    labs(title = paste("UMAP Projection -", shape, "Colonies"),
+         color = shape) +
+    theme_minimal() 
+  
+  # Zapis wykresu jako plik PNG
+  ggsave(filename = paste0("UMAP_", shape, ".png"), plot = plot, width = 10, height = 8)
+}
+```
+
+```{r redukcja liczby klastrów z 13 do 7}
+
+
+dbscan_result_exp13 <- dbscan(umap_data_exp13[, c("UMAP1", "UMAP2")], eps = 0.55, minPts = 5)
+table(dbscan_result_exp13$cluster)
+
+# Add cluster results to the data frame
+umap_data_exp13$cluster <- as.factor(dbscan_result_exp13$cluster)
+
+# Tworzenie wykresu z DBSCAN i zapis w domyślnej palecie kolorów
+plot <- ggplot(umap_data_exp13, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "DBSCAN Clustering on UMAP-Reduced Data", x = "UMAP1", y = "UMAP2") +
+  theme_minimal() +
+  scale_color_discrete()  # Przywrócenie domyślnych kolorów dla klastrów
+
+# Zapisz wykres jako PNG
+ggsave("UMAP_DBSCAN_clusters_default_colors.png", plot = plot, width = 10, height = 8, dpi = 300)
+
+
+# Combine UMAP coordinates with your data
+umap_data_exp13 <- as.data.frame(umap_result_exp13$layout)
+colnames(umap_data_exp13) <- c("UMAP1", "UMAP2")
+umap_data_exp13 <- cbind(umap_data_exp13, data_exp13[, flow_gates_percent])  # Add the marker data columns
+
+marker_columns <- flow_gates_percent  # List of marker columns
+
+# Generate and save UMAP plots for each marker
+library(ggplot2)
+library(rlang)  # For tidy evaluation
+library(viridis)  # For better color scales
+
+for (marker in marker_columns) {
+  plot <- ggplot(umap_data_exp13, aes(x = UMAP1, y = UMAP2, color = !!sym(marker))) +
+    geom_point(size = 2) +
+    scale_color_viridis_c() +
+    labs(title = paste("UMAP Projection with", marker, "Expression"),
+         color = marker) +
+    theme_minimal()
+  
+  # Save the plot
+  ggsave(filename = paste0("new_UMAP_exp13_", marker, ".png"), plot = plot, width = 10, height = 8)
+}
+```
