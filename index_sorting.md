@@ -1,8 +1,5 @@
 # Data Normalization: Index Sorting
 
-
-# Data Normalization: Index Sorting
-
 ## Checking if data is linear or log
 
 ### ERC_aim1_exp9_summary
