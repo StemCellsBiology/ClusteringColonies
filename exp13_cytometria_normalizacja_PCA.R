@@ -213,3 +213,37 @@ ggplot(pca_df, aes(x = PC1, y = PC2)) +
     y = paste0("PC2 (", round(var_explained[2], 1), "%)")
   ) +
   theme_minimal(base_size = 14)
+
+#PORÓWNANIE DWÓCH METOD (jawny vs niejawny z-score)
+
+pca_raw <- df %>%
+  select(all_of(gated_populations)) %>%
+  drop_na()
+
+X_A <- log1p(pca_raw)
+
+# PCA standardowy
+pca_A <- prcomp(
+  X_A,
+  center = TRUE,
+  scale. = TRUE
+)
+
+# PCA - jawny z-score
+X_log <- log1p(pca_raw)
+Xz_B <- scale(X_log)
+
+pca_B <- prcomp(
+  Xz_B,
+  center = FALSE,
+  scale. = FALSE
+)
+
+# Porównanie - PCA A VS. PCA B
+# wariancja
+round(summary(pca_A)$importance[2, 1:5], 3)
+round(summary(pca_B)$importance[2, 1:5], 3)
+# loadings (składowe)
+cor(pca_A$rotation[,1], pca_B$rotation[,1])
+cor(pca_A$rotation[,2], pca_B$rotation[,2])
+# wniosek: Użycie scale.=TRUE w prcomp() jest równoważne wykonaniu kolumnowego Z-score przed PCA.
