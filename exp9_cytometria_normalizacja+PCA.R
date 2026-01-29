@@ -224,35 +224,49 @@ ggplot(pca_df, aes(x = PC1, y = PC2)) +
   theme_minimal(base_size = 14)
 
 #PORÓWNANIE DWÓCH METOD (jawny vs niejawny z-score)
+####################
+# wariant A (log1p) vs B (z-score) + porównanie
+library(dplyr)
+library(ggplot2)
 
-pca_raw <- df %>%
-  select(all_of(gated_populations)) %>%
-  drop_na()
+#  Macierz wejściowa 
+# df_gated_pct_live: tylko zgatowane populacje w % of live (kolumny *_pct_live)
 
-X_A <- log1p(pca_raw)
+pca_mat <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ ifelse(is.na(.x), 0, .x))) %>%
+  as.matrix()
 
-# PCA standardowy
-pca_A <- prcomp(
-  X_A,
-  center = TRUE,
-  scale. = TRUE
+# log1p(%live)
+X <- log1p(pca_mat)
+
+# A) Baseline: z-score robiony "w środku" prcomp przez scale.=TRUE
+pca_A <- prcomp(X, center = TRUE, scale. = TRUE)
+
+# B) Jawny Z-score przed PCA
+Xz <- scale(X)  # kolumnowo: populacje
+pca_B <- prcomp(Xz, center = FALSE, scale. = FALSE)
+
+# czy scores są prawie identyczne?
+cor_PC1 <- abs(cor(pca_A$x[,1], pca_B$x[,1]))
+cor_PC2 <- abs(cor(pca_A$x[,2], pca_B$x[,2]))
+print(paste0("abs(cor(PC1_A, PC1_B)) = ", round(cor_PC1, 6)))
+print(paste0("abs(cor(PC2_A, PC2_B)) = ", round(cor_PC2, 6)))
+
+# A vs B na jednym wykresie
+df_plot <- bind_rows(
+  as.data.frame(pca_A$x[,1:2]) %>% mutate(Method = "A: prcomp(scale.=TRUE)"),
+  as.data.frame(pca_B$x[,1:2]) %>% mutate(Method = "B: scale() then prcomp()")
 )
 
-# PCA - jawny z-score
-X_log <- log1p(pca_raw)
-Xz_B <- scale(X_log)
-
-pca_B <- prcomp(
-  Xz_B,
-  center = FALSE,
-  scale. = FALSE
-)
-
-# Porównanie - PCA A VS. PCA B
-# wariancja
-round(summary(pca_A)$importance[2, 1:5], 3)
-round(summary(pca_B)$importance[2, 1:5], 3)
-# loadings (składowe)
-cor(pca_A$rotation[,1], pca_B$rotation[,1])
-cor(pca_A$rotation[,2], pca_B$rotation[,2])
-# wniosek: Użycie scale.=TRUE w prcomp() jest równoważne wykonaniu kolumnowego Z-score przed PCA.
+ggplot(df_plot, aes(x = PC1, y = PC2, shape = Method)) +
+  geom_point(size = 3, alpha = 0.75) +
+  labs(
+    title = "PCA overlay: A vs B (log1p(% of live))",
+    subtitle = paste0(
+      "A: PC1 ", round(var_A[1],1), "% | PC2 ", round(var_A[2],1), "%  ||  ",
+      "B: PC1 ", round(var_B[1],1), "% | PC2 ", round(var_B[2],1), "%"
+    ),
+    x = "PC1",
+    y = "PC2"
+  ) +
+  theme_minimal(base_size = 14)
