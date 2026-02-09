@@ -1,0 +1,304 @@
+---
+title: "mateusz_analysis"
+author: "Maya Śliwa"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+library(readxl)
+library(dplyr)
+setwd("~/Desktop/Szade_Lab/aktualne")
+```
+
+# Wstępna analiza
+
+```{r}
+cyto_cols <- c(
+  "Live_dead_Ly6C_subset",
+  "cKit_neg",
+  "granulocytes_1",
+  "low6c_mono",
+  "monocytes_1",
+  "FcR_hi",
+  "FcR_low",
+  "FcR_neg",
+  "neutrophils",
+  "non_myelo",
+  "CD16_32hi_CD71low",
+  "CD16_32hi_CD71neg",
+  "CD16_32low_CD71low",
+  "CD16_32low_CD71neg",
+  "CD16_32neg_CD71hi",
+  "CD16_32neg_CD71low",
+  "CD16_32neg_CD71neg",
+  "CD16_32pos_CD71hi",
+  "non_myelo_wide",
+  "Q1..CD150....CD105.",
+  "CD71hi_Ter119neg",
+  "CD71pos_Ter119low",
+  "CD71pos_Ter119neg",
+  "Q2..CD150....CD105.",
+  "Q3..CD150....CD105.",
+  "Q4..CD150....CD105.",
+  "cKit_pos",
+  "Ter119_pos_CD16_32neg",
+  "GMP_1",
+  "GMP_2",
+  "GMP_combined",
+  "non_GMP",
+  "CMP_1",
+  "trombo",
+  "FSC.A_medium_SSC.A_high",
+  "FSC_low_SSC_low",
+  "FSChigh_SSChigh",
+  "FSClow_SSC_high",
+  "SSC_low_FSC_high"
+)
+
+# wczytanie danych
+df <- read_excel("Mateusz_summary.xlsx")
+
+# OBIEKT R z samą cytometrią
+df_cyto <- df %>%
+  select(all_of(cyto_cols))
+
+# normalizacja % of live dla wszystkich
+library(dplyr)
+denom <- "Live_dead_Ly6C_subset"
+gate_cols <- setdiff(colnames(df_cyto), denom)
+
+df_cyto_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gate_cols),
+      ~ ifelse(.data[[denom]] == 0 | is.na(.data[[denom]]), NA_real_, (.x / .data[[denom]]) * 100),
+      .names = "{.col}_pct_live"
+    )
+  )
+
+# normalizacja % of live dla zgatowanych populacji
+gated_populations <- c(
+  "cKit_neg",
+  "granulocytes_1",
+  "low6c_mono",
+  "monocytes_1",
+  "FcR_hi",
+  "FcR_low",
+  "FcR_neg",
+  "neutrophils",
+  "non_myelo",
+  "CD16_32hi_CD71low",
+  "CD16_32hi_CD71neg",
+  "CD16_32low_CD71low",
+  "CD16_32low_CD71neg",
+  "CD16_32neg_CD71hi",
+  "CD16_32neg_CD71low",
+  "CD16_32neg_CD71neg",
+  "CD16_32pos_CD71hi",
+  "non_myelo_wide",
+  "CD71hi_Ter119neg",
+  "CD71pos_Ter119low",
+  "CD71pos_Ter119neg",
+  "cKit_pos",
+  "Ter119_pos_CD16_32neg",
+  "GMP_1",
+  "GMP_2",
+  "GMP_combined",
+  "non_GMP",
+  "CMP_1",
+  "trombo"
+)
+
+
+denom <- "Live_dead_Ly6C_subset"
+df_gated_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gated_populations),
+      ~ ifelse(
+        .data[[denom]] == 0 | is.na(.data[[denom]]),
+        NA_real_,
+        (.x / .data[[denom]]) * 100
+      ),
+      .names = "{.col}_pct_live"
+    )
+  ) %>%
+  select(ends_with("_pct_live"))
+
+# HISTOGRAMY DLA WSZYSTKICH POPULACJI
+library(ggplot2)
+df_in <- df_gated_pct_live
+out_dir <- file.path(getwd(), "mateusz_histograms_pct_live")
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+# Kolumny do histogramów (wszystkie % of live)
+pct_cols <- grep("_pct_live$", colnames(df_in), value = TRUE)
+
+if (length(pct_cols) == 0) {
+  stop("Nie znaleziono kolumn kończących się na '_pct_live'. Sprawdź nazwę obiektu albo etap normalizacji.")
+}
+
+# === HISTOGRAM LOOP ===
+for (col in pct_cols) {
+  p <- ggplot(df_in, aes(x = .data[[col]])) +
+    geom_histogram(bins = 50) +
+    labs(
+      title = paste("Histogram:", col),
+      x = "% of live",
+      y = "Count"
+    ) +
+    theme_minimal()
+  
+  # nazwa pliku
+  safe_name <- gsub("[^A-Za-z0-9_\\-]+", "_", col)
+  
+  ggsave(
+    filename = file.path(out_dir, paste0(safe_name, ".png")),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+
+message("Histogramy zapisane w: ", out_dir)
+
+library(dplyr)
+library(ggplot2)
+
+############## PCA ############################
+library(tidyr)
+pca_mat <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  as.matrix()
+
+pca_res <- prcomp(
+  log1p(pca_mat),
+  center = TRUE,
+  scale. = TRUE
+)
+
+var_explained <- (pca_res$sdev^2) / sum(pca_res$sdev^2) * 100
+pca_df <- as.data.frame(pca_res$x) %>%
+  mutate(
+    PC1 = PC1,
+    PC2 = PC2
+  )
+
+ggplot(pca_df, aes(x = PC1, y = PC2)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "PCA of gated populations (% of live)",
+    subtitle = paste0(
+      "PC1: ", round(var_explained[1], 1), "% | ",
+      "PC2: ", round(var_explained[2], 1), "%"
+    ),
+    x = paste0("PC1 (", round(var_explained[1], 1), "%)"),
+    y = paste0("PC2 (", round(var_explained[2], 1), "%)")
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+# UMAP + DBSCAN
+
+```{r}
+# PCA 
+pcs_to_use <- 1:5
+X_pca <- pca_res$x[, pcs_to_use, drop = FALSE]
+
+# UMAP (NA PCA)
+library(uwot)
+set.seed(123)
+
+umap_res <- umap(
+  X_pca,
+  n_neighbors = 10,
+  min_dist = 0.2,
+  metric = "euclidean"
+)
+
+umap_df <- as.data.frame(umap_res)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+# --- DBSCAN (NA PCA, NIE NA UMAP) ---
+library(dbscan)
+
+kNNdistplot(X_pca, k = 5)
+abline(h = 0.8, col = "red", lwd = 2)
+
+db <- dbscan(
+  X_pca,
+  eps = 0.8,
+  minPts = 5
+)
+
+table(db$cluster)
+
+# wizualizacja 
+umap_df$cluster <- factor(db$cluster)
+
+library(ggplot2)
+ggplot(umap_df, aes(UMAP1, UMAP2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "UMAP visualization of DBSCAN clusters",
+    subtitle = "DBSCAN performed on PC1–PC5",
+    color = "Cluster"
+  )
+```
+
+Zastosowanie algorytmu DBSCAN w przestrzeni pierwszych pięciu składowych głównych (PC1–PC5) nie pozwoliło na identyfikację stabilnych klastrów gęstościowych, a wszystkie obserwacje zostały zaklasyfikowane jako szum (cluster 0)
+
+**Które populacje napędzają PCA?**
+
+```{r}
+loadings <- as.data.frame(pca_res$rotation[, 1:2])
+loadings$population <- rownames(loadings)
+
+loadings %>%
+  arrange(desc(abs(PC1))) %>%
+  head(10)
+
+loadings %>%
+  arrange(desc(abs(PC2))) %>%
+  head(10)
+```
+
+PC1 opisuje kontinuum różnicowania hematopoetycznego:\
+od progenitorów (GMP, cKit⁺) do dojrzałych komórek mieloidalnych i monocytarnych. PC2 opisuje zmiany w składzie linii komórkowych (granulocytarna vs pozostałe) –\> Zmienność próbek jest zdominowana przez stopień różnicowania hematopoetycznego (PC1) oraz przez balans pomiędzy subpopulacjami mieloidalnymi i niemyeloidalnymi (PC2), a nie przez istnienie dyskretnych fenotypów.
+
+# Kolorowanie PCA
+
+```{r}
+pca_plot_df <- as.data.frame(pca_res$x) %>% bind_cols(df %>% select(Treatment.x))
+
+ggplot(pca_plot_df, aes(PC1, PC2, color = Treatment.x)) + geom_point(size = 3, alpha = 0.8) + theme_minimal(base_size = 14)
+```
+
+```{r}
+pca_plot_df <- as.data.frame(pca_res$x) %>% bind_cols(df %>% select(Group.x))
+
+ggplot(pca_plot_df, aes(PC1, PC2, color = Group.x)) + geom_point(size = 3, alpha = 0.8) + theme_minimal(base_size = 14)
+```
+
+```{r}
+pca_plot_df <- as.data.frame(pca_res$x) %>% bind_cols(df %>% select(Colony_shape))
+
+ggplot(pca_plot_df, aes(PC1, PC2, color = Colony_shape)) + geom_point(size = 3, alpha = 0.8) + theme_minimal(base_size = 14)
+```
+
+```{r}
+pca_plot_df <- as.data.frame(pca_res$x) %>% bind_cols(df %>% select(Colony_shape))
+
+ggplot(pca_plot_df, aes(PC1, PC2, color = Colony_shape)) + geom_point(size = 3, alpha = 0.8) + theme_minimal(base_size = 14)
+```
