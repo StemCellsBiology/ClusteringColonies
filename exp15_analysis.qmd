@@ -1,0 +1,289 @@
+---
+title: "exp15_analysis"
+author: "Maya Śliwa"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+```{r}
+library(readxl)
+library(dplyr)
+library(writexl)
+library(dplyr)
+setwd("~/Desktop/Szade_Lab/aktualne")
+```
+
+```{r}
+cyto_cols <- c(
+  "all_events",
+  "singlets_cells",
+  "Live_dead_Ly6C_subset",
+  "cKit_neg",
+  "low6c_mono",
+  "monocytes_1",
+  "neutrophils",
+  "non_mielo",
+  "FcR_neg",
+  "CD150neg_CD105pos",
+  "CD150pos_CD105pos",
+  "CD150pos_CD105neg",
+  "CD150neg_CD105neg",
+  "cKit_pos",
+  "GMP",
+  "non_GMP",
+  "CFU_E",
+  "CMP",
+  "preCFUE",
+  "preGM",
+  "preMegE",
+  "trombo"
+)
+
+# wczytanie danych
+df <- read_excel("ERC_aim1_exp15_summary.xlsx") 
+
+# OBIEKT R z samą cytometrią
+df_cyto <- df %>%
+  select(all_of(cyto_cols))
+
+# normalizacja % of live dla wszystkich
+denom <- "Live_dead_Ly6C_subset"
+gate_cols <- setdiff(colnames(df_cyto), denom)
+
+df_cyto_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gate_cols),
+      ~ ifelse(.data[[denom]] == 0 | is.na(.data[[denom]]), NA_real_, (.x / .data[[denom]]) * 100),
+      .names = "{.col}_pct_live"
+    )
+  )
+
+#normalizacja % of live dla zgatowanych populacji
+gated_populations <- c(
+  "cKit_neg",
+  "low6c_mono",
+  "monocytes_1",
+  "neutrophils",
+  "non_mielo",
+  "FcR_neg",
+  "CD150neg_CD105pos",
+  "CD150pos_CD105pos",
+  "CD150pos_CD105neg",
+  "CD150neg_CD105neg",
+  "cKit_pos",
+  "GMP",
+  "non_GMP",
+  "CFU_E",
+  "CMP",
+  "preCFUE",
+  "preGM",
+  "preMegE",
+  "trombo"
+)
+
+denom <- "Live_dead_Ly6C_subset"
+df_gated_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gated_populations),
+      ~ ifelse(
+        .data[[denom]] == 0 | is.na(.data[[denom]]),
+        NA_real_,
+        (.x / .data[[denom]]) * 100
+      ),
+      .names = "{.col}_pct_live"
+    )
+  ) %>%
+  select(ends_with("_pct_live"))
+
+# HISTOGRAMY DLA WSZYSTKICH POPULACJI
+library(ggplot2)
+df_in <- df_gated_pct_live
+out_dir <- file.path(getwd(), "exp_15_histograms_pct_live")
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+# Kolumny do histogramów (wszystkie % of live)
+pct_cols <- grep("_pct_live$", colnames(df_in), value = TRUE)
+
+if (length(pct_cols) == 0) {
+  stop("Nie znaleziono kolumn kończących się na '_pct_live'")
+}
+
+# === HISTOGRAM LOOP ===
+for (col in pct_cols) {
+  p <- ggplot(df_in, aes(x = .data[[col]])) +
+    geom_histogram(bins = 50) +
+    labs(
+      title = paste("Histogram:", col),
+      x = "% of live",
+      y = "Count"
+    ) +
+    theme_minimal()
+  
+  # nazwa pliku
+  safe_name <- gsub("[^A-Za-z0-9_\\-]+", "_", col)
+  
+  ggsave(
+    filename = file.path(out_dir, paste0(safe_name, ".png")),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+
+message("Histogramy zapisane w: ", out_dir)
+
+library(dplyr)
+library(ggplot2)
+
+############## PCA ############################
+library(dplyr)
+library(tidyr)
+
+pca_df_in <- df_gated_pct_live
+pca_mat <- pca_df_in %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  as.matrix()
+
+keep_cols <- apply(pca_mat, 2, function(x) var(x, na.rm = TRUE) > 0)
+pca_mat2 <- pca_mat[, keep_cols, drop = FALSE]
+
+dropped <- colnames(pca_mat)[!keep_cols]
+message("Wyrzucone kolumny (zero variance): ", paste(dropped, collapse = ", "))
+
+pca_res <- prcomp(
+  log1p(pca_mat2),
+  center = TRUE,
+  scale. = TRUE
+)
+
+var_explained <- (pca_res$sdev^2) / sum(pca_res$sdev^2) * 100
+pca_scores <- as.data.frame(pca_res$x)
+library(ggplot2)
+pca_df <- as.data.frame(pca_res$x)
+
+ggplot(pca_df, aes(x = PC1, y = PC2)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "PCA of gated populations (% of live)",
+    subtitle = paste0(
+      "PC1: ", round(var_explained[1], 1), "% | ",
+      "PC2: ", round(var_explained[2], 1), "%"
+    ),
+    x = paste0("PC1 (", round(var_explained[1], 1), "%)"),
+    y = paste0("PC2 (", round(var_explained[2], 1), "%)")
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+```{r}
+# PCA 
+pcs_to_use <- 1:5
+X_pca <- pca_res$x[, pcs_to_use, drop = FALSE]
+
+# UMAP (NA PCA)
+library(uwot)
+set.seed(123)
+
+umap_res <- umap(
+  X_pca,
+  n_neighbors = 10,
+  min_dist = 0.2,
+  metric = "euclidean"
+)
+
+umap_df <- as.data.frame(umap_res)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+# --- DBSCAN (NA PCA, NIE NA UMAP) ---
+library(dbscan)
+
+kNNdistplot(X_pca, k = 5)
+abline(h = 0.8, col = "red", lwd = 2)
+
+db <- dbscan(
+  X_pca,
+  eps = 0.8,
+  minPts = 5
+)
+
+table(db$cluster)
+
+# wizualizacja 
+umap_df$cluster <- factor(db$cluster)
+
+library(ggplot2)
+ggplot(umap_df, aes(UMAP1, UMAP2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "UMAP visualization of DBSCAN clusters",
+    subtitle = "DBSCAN performed on PC1–PC5",
+    color = "Cluster"
+  )
+```
+
+Na rysunku przedstawiono **dwuwymiarową projekcję danych uzyskaną metodą UMAP**, służącą do wizualizacji wyników **klasteryzacji DBSCAN**.
+
+Każdy punkt odpowiada pojedynczej próbece a jego położenie w przestrzeni UMAP (osie UMAP1 i UMAP2) odzwierciedla podobieństwo fenotypowe próbek podstawie pierwszych pięciu składowych głównych (PC1–PC5) uzyskanych z analizy PCA. Próbek o podobnym profilu cytometrycznym sąsiadują ze sobą w przestrzeni wykresu, natomiast próbki bardziej odmienne są od siebie oddalone.
+
+```{r}
+df_clusters <- df %>%
+  mutate(
+    cluster = factor(db$cluster)
+  )
+table(df_clusters$cluster)
+table(df_clusters$treatment)
+tab <- table(df_clusters$cluster, df_clusters$treatment)
+tab
+```
+
+Klasteryzacja DBSCAN przeprowadzona w przestrzeni PC1–PC5 nie wykazała jednoznacznej segregacji próbek względem warunków eksperymentalnych (GCSF, NaCl, PHZ), ponieważ wszystkie warunki były reprezentowane w podobnych proporcjach w głównych klastrach.
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+df_prof <- df_gated_pct_live %>%
+  mutate(cluster = factor(db$cluster))  # 0 = noise, 1 = klaster
+summary_tbl <- df_prof %>%
+  pivot_longer(
+    cols = ends_with("_pct_live"),
+    names_to = "population",
+    values_to = "value"
+  ) %>%
+  group_by(population, cluster) %>%
+  summarise(
+    mean = mean(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    names_from = cluster,
+    values_from = c(mean, median),
+    names_glue = "{.value}_cluster{cluster}"
+  ) %>%
+  mutate(
+    diff_mean = mean_cluster1 - mean_cluster0,
+    log2FC = log2((mean_cluster1 + 1e-6) / (mean_cluster0 + 1e-6))
+  ) %>%
+  arrange(desc(abs(diff_mean)))
+
+summary_tbl
+
+ranking_tbl <- summary_tbl %>%
+  select(population, diff_mean, log2FC) %>%
+  arrange(desc(abs(diff_mean)))
+
+ranking_tbl
+```
+
+Różnice między klastrami są napędzane głównie zmianami udziału populacji cKit⁻ oraz spadkiem frakcji progenitorowych (GMP, CMP), wskazując na odmienny stan różnicowania hematopoetycznego. Największe różnice między klastrami dotyczą populacji cKit⁻ (↑ w klastrze 1) oraz cKit⁺/GMP (↓ w klastrze 1), wskazując na różny stopień dojrzałości hematopoetycznej.
