@@ -1,8 +1,8 @@
 # **Data Normalization: Index Sorting**
 
 <details>
-<summary>▶Press to unwrap</summary>
-## **Checking if data is linear or log**
+<summary>**Checking if data is linear or log**</summary>
+
 
 ### ERC_aim1_exp9_summary
 
@@ -76,12 +76,6 @@ width="420" height="420" />
 
 <img src="index_sorting_files/figure-commonmark/cell-3-output-3.png"
 width="420" height="420" />
-
-</details>
-
-
-<details>
-<summary>▶Press to unwrap</summary>
 
 ### ERC_aim1_exp15_summary
 
@@ -158,7 +152,6 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-5-output-3.png"
 width="420" height="420" />
 
-</details>
 
 ### ERC_aim_exp13_summary
 
@@ -275,10 +268,13 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-8-output-3.png"
 width="420" height="420" />
 
-\###As we can see after logarithm transformation the distirbution is way
+###As we can see after logarithm transformation the distirbution is way
 better
 
-## **Log transformation**
+</details>
+
+<details>
+<summary>**Log transformation**</summary>
 
 ### Comparing log_10, ln, log1p and asinh
 
@@ -350,7 +346,7 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-9-output-5.png"
 width="420" height="420" />
 
-\####comparing for marker from file ERC_aim1_exp15
+#### Comparing for marker from file ERC_aim1_exp15
 
 ``` r
 #log_10
@@ -555,7 +551,10 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-13-output-12.png"
 width="420" height="420" />
 
-## **Z-score scalling**
+</details>
+
+<details>
+<summary>**Z-score scalling**</summary>
 
 ### scalling ERC_aim1_exp_9
 
@@ -876,7 +875,10 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-19-output-24.png"
 width="420" height="420" />
 
-## **PCA**
+</details>
+
+<details>
+<summary>**PCA**</summary>
 
 #### PCA exp9
 
@@ -1477,7 +1479,10 @@ ggplot(data = pca_15.data,
 <img src="index_sorting_files/figure-commonmark/cell-42-output-1.png"
 width="420" height="420" />
 
-## **3D PCA**
+</details>
+
+<details>
+<summary>**3D PCA**</summary>
 
 ``` r
 install.packages("scatterplot3d")
