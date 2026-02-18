@@ -1,10 +1,9 @@
 # **Data Normalization: Index Sorting**
 
+## **Checking if data is linear or log**
+
 <details>
-<summary>**Checking if data is linear or log**</summary>
-
-
-### ERC_aim1_exp9_summary
+<summary><strong>ERC_aim1_exp9_summary</strong></summary>
 
 ``` r
 library(readxl)
@@ -77,7 +76,11 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-3-output-3.png"
 width="420" height="420" />
 
-### ERC_aim1_exp15_summary
+</details>
+
+<details>
+<summary><strong>ERC_aim1_exp15_summary</strong></summary>
+
 
 ``` r
 df_15 <- read_excel("ERC_aim1_exp15_summary.xlsx")
@@ -152,8 +155,10 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-5-output-3.png"
 width="420" height="420" />
 
+</details>
 
-### ERC_aim_exp13_summary
+<details>
+<summary><strong>ERC_aim1_exp13_summary</strong></summary>
 
 ``` r
 library(readxl)
@@ -273,10 +278,10 @@ better
 
 </details>
 
-<details>
-<summary>**Log transformation**</summary>
+## **Log transformation**
 
-### Comparing log_10, ln, log1p and asinh
+<details>
+<summary><strong>Comparing log_10, ln, log1p and asinh</strong></summary>
 
 #### Comparing for marker from ERC_aim1_exp_9
 
@@ -413,7 +418,10 @@ width="420" height="420" />
 
 We decide on using log_10 in furter analysis as it seem to work best
 
-### Log_10 transformation ERC_aim1_exp_9
+</details>
+
+<details>
+<summary><strong>Log_10 transformation ERC_aim1_exp_9</strong></summary>
 
 ``` r
 for (m in marker_cols_9) {
@@ -463,7 +471,10 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-11-output-13.png"
 width="420" height="420" />
 
-### Log_10 transformation ERC_aim1_exp_15
+</details>
+
+<details>
+<summary><strong>Log_10 transformation ERC_aim1_exp_15</strong></summary>
 
 ``` r
 for (m in marker_cols_15) {
@@ -501,7 +512,10 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-12-output-9.png"
 width="420" height="420" />
 
-### Log_10 transformation ERC_aim1_exp_13
+</details>
+
+<details>
+<summary><strong>Log_10 transformation ERC_aim1_exp_13</strong></summary>
 
 ``` r
 df_log_13 <- df_13
@@ -553,10 +567,10 @@ width="420" height="420" />
 
 </details>
 
-<details>
-<summary>**Z-score scalling**</summary>
+## **Z-score scalling**
 
-### scalling ERC_aim1_exp_9
+<details>
+<summary><strong>scalling ERC_aim1_exp_9</strong></summary>
 
 ``` r
 df_scaled_9 <- df_log_9
@@ -670,7 +684,10 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-15-output-26.png"
 width="420" height="420" />
 
-### scalling ERC_aim1_exp_15
+</details>
+
+<details>
+<summary><strong>scalling ERC_aim1_exp_15</strong></summary>
 
 ``` r
 df_scaled_15 <- df_log_15
@@ -760,7 +777,10 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-17-output-18.png"
 width="420" height="420" />
 
-### scalling ERC_aim1_exp_13
+</details>
+
+<details>
+<summary><strong>scalling ERC_aim1_exp_13</strong></summary>
 
 ``` r
 df_scaled_13 <- df_log_13
@@ -877,10 +897,10 @@ width="420" height="420" />
 
 </details>
 
-<details>
-<summary>**PCA**</summary>
+## **PCA**
 
-#### PCA exp9
+<details>
+<summary><strong>PCA ERC_aim1_exp_9</strong></summary>
 
 ``` r
 pca_9 <- prcomp(df_scaled_9[marker_cols_9])
@@ -962,7 +982,10 @@ A data.frame: 5 × 2
 | Live_Median  | Live_Median    | 0.3428536       |
 | Lin_Median   | Lin_Median     | -0.2755929      |
 
-#### Applying z-score colours on PCA exp9
+</details>
+
+<details>
+<summary><strong>Applying z-score colours on PCA exp9</strong></summary>
 
 ``` r
 library(dplyr)
@@ -1079,7 +1102,10 @@ width="420" height="420" />
 <img src="index_sorting_files/figure-commonmark/cell-26-output-13.png"
 width="420" height="420" />
 
-#### PCA exp15
+</details>
+
+<details>
+<summary><strong>PCA ERC_aim1_exp_15</strong></summary>
 
 ``` r
 pca_15 <- prcomp(df_scaled_15[marker_cols_15])
@@ -1154,7 +1180,10 @@ A data.frame: 5 × 2
 | CD16_32_Median | CD16_32_Median | 0.3732949       |
 | sca1_Median    | sca1_Median    | -0.2842991      |
 
-#### Applying z-score colours on PCA exp15
+</details>
+
+<details>
+<summary><strong>Applying z-score colours on PCA exp15</strong></summary>
 
 ``` r
 library(dplyr)
@@ -1273,7 +1302,10 @@ ggplot(data = pca_15.data,
 <img src="index_sorting_files/figure-commonmark/cell-34-output-1.png"
 width="420" height="420" />
 
-#### PCA exp13
+</details>
+
+<details>
+<summary><strong>PCA ERC_aim1_exp_13</strong></summary>
 
 ``` r
 pca_13 <- prcomp(df_scaled_13[marker_cols_13])
@@ -1351,7 +1383,10 @@ A data.frame: 5 × 2
 | CD150_Median | CD150_Median   | 0.3950798       |
 | cKit_Median  | cKit_Median    | -0.2626954      |
 
-#### Applying z-score colours on PCA exp13
+</details>
+
+<details>
+<summary><strong>Applying z-score colours on PCA exp13</strong></summary>
 
 ``` r
 library(dplyr)
@@ -1481,8 +1516,7 @@ width="420" height="420" />
 
 </details>
 
-<details>
-<summary>**3D PCA**</summary>
+## **3D PCA**
 
 ``` r
 install.packages("scatterplot3d")
@@ -1492,7 +1526,8 @@ library(scatterplot3d)
     Instalowanie pakietu w ‘/opt/homebrew/lib/R/4.4/site-library’
     (ponieważ ‘lib’ nie jest określony)
 
-### 3D PCA exp9
+<details>
+<summary><strong>3D PCA ERC_aim1_exp_9</strong></summary>
 
 ``` r
 pca_9.data <- data.frame(
@@ -1616,7 +1651,10 @@ legend("topright", legend = names(group_colors), col = group_colors, pch = 16)
 <img src="index_sorting_files/figure-commonmark/cell-47-output-1.png"
 width="420" height="420" />
 
-### 3D PCA exp15
+</details>
+
+<details>
+<summary><strong>3D PCA ERC_aim1_exp_15</strong></summary>
 
 ``` r
 pca_15.data <- data.frame(
@@ -1779,7 +1817,10 @@ legend("topright", legend = names(group_colors), col = group_colors, pch = 16)
 <img src="index_sorting_files/figure-commonmark/cell-52-output-1.png"
 width="420" height="420" />
 
-### 3D PCA exp13
+</details>
+
+<details>
+<summary><strong>3D PCA ERC_aim1_exp_13</strong></summary>
 
 ``` r
 pca_13.data <- data.frame(
@@ -2018,3 +2059,5 @@ legend("topright", legend = names(group_colors), col = group_colors, pch = 16)
 
 <img src="index_sorting_files/figure-commonmark/cell-57-output-1.png"
 width="420" height="420" />
+
+</details>
