@@ -1,0 +1,352 @@
+---
+title: "RSM_summary"
+author: "Maya Śliwa"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+library(readxl)
+library(dplyr)
+setwd("~/Desktop/Szade_Lab/aktualne")
+```
+
+RSM experiment
+
+```{r}
+cyto_cols_RSM <- c(
+  "Live_dead_Ly6C_subset",
+  "cKit_neg",
+  "eosinofils",
+  "low6c_mono",
+  "monocytes_1",
+  "FcR_hi",
+  "FcR_low",
+  "FcR_neg",
+  "neutrophils",
+  "non_mielo",
+  "CD16_32hi_CD71low",
+  "CD16_32hi_CD71neg",
+  "CD16_32low_CD71low",
+  "CD16_32low_CD71neg",
+  "CD16_32neg_CD71hi",
+  "CD16_32neg_CD71neg",
+  "CD16_32neg_CD71pos",
+  "CD16_32pos_CD71hi",
+  "non_mielo_wide",
+  "Q1..CD150....CD105.",
+  "CD71high_Ter119neg",
+  "CD71pos_Ter119low",
+  "CD71pos_Ter119neg",
+  "Q2..CD150....CD105.",
+  "Q3..CD150....CD105.",
+  "Q4..CD150....CD105.",
+  "Ter119pos_CD16_32neg",
+  "cKit_pos",
+  "CD150pos_CD16_32neg",
+  "GMP_1",
+  "GMP_2",
+  "non_GMP",
+  "CMP_1",
+  "trombo",
+  "FSC.A_medium_SSC.A_high",
+  "FSC_low.SSC_low",
+  "FSChigh_SSChigh",
+  "FSClow_SSC_high",
+  "SSC_low_FSC_high"
+)
+
+# wczytanie danych
+df <- read_excel("RSM_summary.xlsx")
+
+# OBIEKT R z samą cytometrią
+df_cyto <- df %>%
+  select(all_of(cyto_cols_RSM))
+
+# normalizacja % of live dla wszystkich
+library(dplyr)
+denom <- "Live_dead_Ly6C_subset"
+gate_cols <- setdiff(colnames(df_cyto), denom)
+
+df_cyto_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gate_cols),
+      ~ ifelse(.data[[denom]] == 0 | is.na(.data[[denom]]), NA_real_, (.x / .data[[denom]]) * 100),
+      .names = "{.col}_pct_live"
+    )
+  )
+
+# normalizacja % of live dla zgatowanych populacji
+gated_populations_RSM <- c(
+  "cKit_neg",
+  "eosinofils",
+  "low6c_mono",
+  "monocytes_1",
+  "FcR_hi",
+  "FcR_low",
+  "FcR_neg",
+  "neutrophils",
+  "non_mielo",
+  "CD16_32hi_CD71low",
+  "CD16_32hi_CD71neg",
+  "CD16_32low_CD71low",
+  "CD16_32low_CD71neg",
+  "CD16_32neg_CD71hi",
+  "CD16_32neg_CD71neg",
+  "CD16_32neg_CD71pos",
+  "CD16_32pos_CD71hi",
+  "non_mielo_wide",
+  "Q1..CD150....CD105.",
+  "CD71high_Ter119neg",
+  "CD71pos_Ter119low",
+  "CD71pos_Ter119neg",
+  "Q2..CD150....CD105.",
+  "Q3..CD150....CD105.",
+  "Q4..CD150....CD105.",
+  "Ter119pos_CD16_32neg",
+  "cKit_pos",
+  "CD150pos_CD16_32neg",
+  "GMP_1",
+  "GMP_2",
+  "non_GMP",
+  "CMP_1",
+  "trombo",
+  "FSC.A_medium_SSC.A_high",
+  "FSC_low.SSC_low",
+  "FSChigh_SSChigh",
+  "FSClow_SSC_high",
+  "SSC_low_FSC_high"
+)
+
+denom <- "Live_dead_Ly6C_subset"
+df_gated_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gated_populations_RSM),
+      ~ ifelse(
+        .data[[denom]] == 0 | is.na(.data[[denom]]),
+        NA_real_,
+        (.x / .data[[denom]]) * 100
+      ),
+      .names = "{.col}_pct_live"
+    )
+  ) %>%
+  select(ends_with("_pct_live"))
+
+# HISTOGRAMY DLA WSZYSTKICH POPULACJI
+library(ggplot2)
+df_in <- df_gated_pct_live
+out_dir <- file.path(getwd(), "histograms_pct_live")
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+# Kolumny do histogramów (wszystkie % of live)
+pct_cols <- grep("_pct_live$", colnames(df_in), value = TRUE)
+
+if (length(pct_cols) == 0) {
+  stop("Nie znaleziono kolumn kończących się na '_pct_live'. Sprawdź nazwę obiektu albo etap normalizacji.")
+}
+
+# === HISTOGRAM LOOP ===
+for (col in pct_cols) {
+  p <- ggplot(df_in, aes(x = .data[[col]])) +
+    geom_histogram(bins = 50) +
+    labs(
+      title = paste("Histogram:", col),
+      x = "% of live",
+      y = "Count"
+    ) +
+    theme_minimal()
+  
+  # nazwa pliku
+  safe_name <- gsub("[^A-Za-z0-9_\\-]+", "_", col)
+  
+  ggsave(
+    filename = file.path(out_dir, paste0(safe_name, ".png")),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300
+  )
+}
+
+message("Histogramy zapisane w: ", out_dir)
+
+library(dplyr)
+library(ggplot2)
+
+############## PCA ############################
+library(tidyr)
+pca_mat <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  as.matrix()
+
+pca_res <- prcomp(
+  log1p(pca_mat),
+  center = TRUE,
+  scale. = TRUE
+)
+
+var_explained <- (pca_res$sdev^2) / sum(pca_res$sdev^2) * 100
+pca_df <- as.data.frame(pca_res$x) %>%
+  mutate(
+    PC1 = PC1,
+    PC2 = PC2
+  )
+
+ggplot(pca_df, aes(x = PC1, y = PC2)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "PCA of gated populations (% of live)",
+    subtitle = paste0(
+      "PC1: ", round(var_explained[1], 1), "% | ",
+      "PC2: ", round(var_explained[2], 1), "%"
+    ),
+    x = paste0("PC1 (", round(var_explained[1], 1), "%)"),
+    y = paste0("PC2 (", round(var_explained[2], 1), "%)")
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+```{r}
+# PCA 
+pcs_to_use <- 1:5
+X_pca <- pca_res$x[, pcs_to_use, drop = FALSE]
+
+# UMAP (NA PCA)
+library(uwot)
+set.seed(123)
+
+umap_res <- umap(
+  X_pca,
+  n_neighbors = 10,
+  min_dist = 0.2,
+  metric = "euclidean"
+)
+
+umap_df <- as.data.frame(umap_res)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+# --- DBSCAN (NA PCA, NIE NA UMAP) ---
+library(dbscan)
+
+kNNdistplot(X_pca, k = 5)
+abline(h = 0.8, col = "red", lwd = 2)
+
+db <- dbscan(
+  X_pca,
+  eps = 0.8,
+  minPts = 5
+)
+
+table(db$cluster)
+
+# wizualizacja 
+umap_df$cluster <- factor(db$cluster)
+
+library(ggplot2)
+ggplot(umap_df, aes(UMAP1, UMAP2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "UMAP visualization of DBSCAN clusters",
+    subtitle = "DBSCAN performed on PC1–PC5",
+    color = "Cluster"
+  )
+```
+
+**UMAP visualization of DBSCAN clusters**
+
+Większość obserwacji należy do klastra 0, który tworzy dominującą i względnie ciągłą strukturę w przestrzeni UMAP, wskazując na obecność głównej populacji próbek o podobnym profilu fenotypowym. Klaster 1 stanowi niewielkie, zwarte skupisko wyraźnie oddzielone od głównej populacji w przestrzeni projekcji, co sugeruje obecność podzbioru próbek o odmiennych proporcjach analizowanych populacji komórkowych. Klaster 2 obejmuje pojedyncze obserwacje o dużej odległości od pozostałych punktów i prawdopodobnie odpowiada obserwacjom odstającym wykrytym przez algorytm DBSCAN.
+
+```{r}
+df_clusters <- df %>%
+  mutate(
+    cluster = factor(db$cluster)
+  )
+table(df_clusters$cluster)
+table(df_clusters$treatment)
+tab <- table(df_clusters$cluster, df_clusters$treatment)
+tab
+fisher.test(tab)
+```
+
+Rozkład próbek pomiędzy warunkami eksperymentalnymi był stosunkowo równomierny (CoPP n = 239, GCSF n = 268, NaCl n = 117). W każdym z warunków dominował klaster 0 (CoPP: 231, GCSF: 264, NaCl: 114), natomiast klastry 1 i 2 obejmowały jedynie niewielką liczbę obserwacji (łącznie 15 próbek). Małe klastry występowały we wszystkich grupach eksperymentalnych i nie wykazywały jednoznacznego związku z konkretnym warunkiem.
+
+Test Fishera nie wykazał istotnej statystycznie zależności między przynależnością do klastra a warunkiem eksperymentalnym (p = 0.160). Wynik ten wskazuje, że struktura klastrów zidentyfikowana metodą DBSCAN nie odzwierciedla bezpośrednio podziału próbek według zastosowanego traktowania.
+
+# Profil Fenotypowy Klastra
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+df_prof <- df_gated_pct_live %>%
+  mutate(cluster = factor(db$cluster))  # 0 = noise, 1 = klaster
+summary_tbl <- df_prof %>%
+  pivot_longer(
+    cols = ends_with("_pct_live"),
+    names_to = "population",
+    values_to = "value"
+  ) %>%
+  group_by(population, cluster) %>%
+  summarise(
+    mean = mean(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    names_from = cluster,
+    values_from = c(mean, median),
+    names_glue = "{.value}_cluster{cluster}"
+  ) %>%
+  mutate(
+    diff_mean = mean_cluster1 - mean_cluster0,
+    log2FC = log2((mean_cluster1 + 1e-6) / (mean_cluster0 + 1e-6))
+  ) %>%
+  arrange(desc(abs(diff_mean)))
+
+summary_tbl
+
+ranking_tbl <- summary_tbl %>%
+  select(population, diff_mean, log2FC) %>%
+  arrange(desc(abs(diff_mean)))
+
+ranking_tbl
+```
+
+### Profil fenotypowy klastrów DBSCAN
+
+Profil fenotypowy klastrów został określony poprzez porównanie średnich wartości udziału poszczególnych populacji komórkowych (% of live) między klastrami wykrytymi metodą DBSCAN. Największe różnice między klastrami obserwowano w populacjach progenitorowych oraz monocytarnych, co wskazuje, że klasteryzacja odzwierciedla przede wszystkim zmienność w składzie komórkowym próbek.
+
+**Klaster 1** (n = 10) charakteryzował się profilem odpowiadającym populacji zubożonej w komórki progenitorowe i wzbogaconej w bardziej dojrzałe populacje mieloidalne. W porównaniu z klastrem głównym (klaster 0), obserwowano wyraźnie niższy udział komórek **cKit⁺** (\~1% vs \~34%) oraz **GMP_1** (\~0.5% vs \~23%), przy jednocześnie zwiększonym udziale komórek **cKit⁻** (\~98% vs \~66%), monocytów (\~44% vs \~20%) oraz populacji FcR_low (\~32% vs \~14%). Klaster ten wykazywał również zwiększony udział monocytów Ly6C\^low oraz populacji FcR_hi, co sugeruje przesunięcie w kierunku bardziej zróżnicowanych komórek mieloidalnych.
+
+**Klaster 2** (n = 5) reprezentował skrajny profil progenitorowy i był wyraźnie odmienny od pozostałych klastrów. Charakteryzował się bardzo wysokim udziałem komórek **cKit⁺** (\~75%) oraz progenitorów **GMP_1** (\~53%) i **GMP_2**(\~21%), przy jednocześnie bardzo niskim udziale monocytów (\~0.08%) oraz populacji FcR_hi i FcR_low. Profil ten wskazuje na silne wzbogacenie w komórki wczesnych stadiów różnicowania hematopoetycznego.
+
+**Klaster 0** (n = 609) stanowił populację dominującą i reprezentował profil pośredni między klastrami 1 i 2. Charakteryzował się umiarkowanym udziałem komórek progenitorowych (cKit⁺ \~34%, GMP_1 \~23%) oraz dojrzałych populacji mieloidalnych (monocytes \~20%), co sugeruje typowy skład komórkowy większości analizowanych próbek.
+
+Największe różnice między klastrami obserwowano dla populacji:
+
+-   **cKit_pos_pct_live**
+
+-   **GMP_1_pct_live**
+
+-   **GMP_2_pct_live**
+
+-   **monocytes_1_pct_live**
+
+-   **FcR_low_pct_live**
+
+-   **low6c_mono_pct_live**
+
+co wskazuje, że zmienność wykryta przez DBSCAN jest w największym stopniu związana z proporcjami komórek progenitorowych oraz monocytarnych.
+
+Ogólnie wyniki wskazują, że wykryte klastry reprezentują **gradient różnicowania hematopoetycznego**, od próbek wzbogaconych w komórki dojrzałe (klaster 1) do próbek wzbogaconych w komórki progenitorowe (klaster 2), podczas gdy klaster 0 odpowiada typowemu profilowi pośredniemu.
