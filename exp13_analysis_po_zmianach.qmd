@@ -1,0 +1,499 @@
+---
+title: "exp13_analysis_po_zmianach"
+author: "Maya Śliwa"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+library(readxl)
+library(dplyr)
+library(writexl)
+library(dplyr)
+setwd("~/Desktop/Szade_Lab/aktualne")
+```
+
+```{r}
+# lista kolumn cytometrycznych 
+cyto_cols <- c(
+  "all_events",
+  "singlets_cells",
+  "Live_dead_Ly6C_subset",
+  "FSC_A_medium_SSC_A_high",
+  "FSC_low.SSC_low",
+  "FSChigh_SSChigh",
+  "FSClow_SSC_high",
+  "SSC_low_FSC_high",
+  "cKit_neg",
+  "low6C_mono",
+  "CD16_32neg_CD71hi",
+  "Ter119neg_CD105pos",
+  "Ter119pos_CD105pos",
+  "Ter119pos_CD105neg",
+  "Ter119neg_CD105neg",
+  "CD16_32pos_CD71hi",
+  "CD16_32neg_CD71pos",
+  "CD16_32low_CD71low",
+  "CD16_32neg_CD71neg",
+  "monocytes_1",
+  "FcR_hi",
+  "FcR_low",
+  "FcR_neg",
+  "neutrophils",
+  "non_mielo_wide",
+  "Ter119_pos_CD16_32neg",
+  "CD71high_Ter119neg",
+  "CD71pos_Ter119low",
+  "CD71pos_Ter119neg",
+  "non_mielo",
+  "early_baso",
+  "late_baso",
+  "polychrom",
+  "proerythro",
+  "Q1_CD150neg_CD105pos",
+  "Q2_CD150pos_CD105pos",
+  "Q3_CD150pos_CD105neg",
+  "Q4_CD150neg_CD105neg",
+  "cKit_pos",
+  "CD150pos_CD16_32neg",
+  "GMP_1",
+  "GMP_2",
+  "non_GMP",
+  "CMP_1",
+  "CFUE",
+  "preCFUE",
+  "preGM",
+  "preMegE",
+  "CD71pos_CD34neg",
+  "CMP_1_CD71pos_CD105neg",
+  "CMP_1_CD71pos_CD105pos",
+  "CMP_2",
+  "trombo"
+)
+
+# wczytanie danych
+df <- read_excel("ERC_aim1_exp13_summary.xlsx") 
+
+# OBIEKT R z samą cytometrią
+df_cyto <- df %>%
+  select(all_of(cyto_cols))
+
+# normalizacja % of live dla wszystkich
+denom <- "Live_dead_Ly6C_subset"
+gate_cols <- setdiff(colnames(df_cyto), denom)
+
+df_cyto_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gate_cols),
+      ~ ifelse(.data[[denom]] == 0 | is.na(.data[[denom]]), NA_real_, (.x / .data[[denom]]) * 100),
+      .names = "{.col}_pct_live"
+    )
+  )
+
+#normalizacja % of live dla zgatowanych populacji
+gated_populations <- c(
+  "low6C_mono",
+  "monocytes_1",
+  "CD16_32neg_CD71hi",
+  "CD16_32pos_CD71hi",
+  "CD16_32neg_CD71pos",
+  "CD16_32low_CD71low",
+  "CD16_32neg_CD71neg",
+  "FcR_hi",
+  "FcR_low",
+  "FcR_neg",
+  "neutrophils",
+  "Ter119_pos_CD16_32neg",
+  "CD71high_Ter119neg",
+  "CD71pos_Ter119low",
+  "CD71pos_Ter119neg",
+  "early_baso",
+  "late_baso",
+  "polychrom",
+  "proerythro",
+  "Ter119neg_CD105pos",
+  "Ter119pos_CD105pos",
+  "Ter119pos_CD105neg",
+  "Ter119neg_CD105neg",
+  "Q1_CD150neg_CD105pos",
+  "Q2_CD150pos_CD105pos",
+  "Q3_CD150pos_CD105neg",
+  "Q4_CD150neg_CD105neg",
+  "CD150pos_CD16_32neg",
+  "GMP_1",
+  "GMP_2",
+  "non_GMP",
+  "CMP_1",
+  "CMP_2",
+  "CFUE",
+  "preCFUE",
+  "preGM",
+  "preMegE",
+  "CD71pos_CD34neg",
+  "CMP_1_CD71pos_CD105neg",
+  "CMP_1_CD71pos_CD105pos",
+  "trombo"
+)
+
+denom <- "Live_dead_Ly6C_subset"
+df_gated_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gated_populations),
+      ~ ifelse(
+        .data[[denom]] == 0 | is.na(.data[[denom]]),
+        NA_real_,
+        (.x / .data[[denom]]) * 100
+      ),
+      .names = "{.col}_pct_live"
+    )
+  ) %>%
+  select(ends_with("_pct_live"))
+```
+
+# Analiza bez log transform
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(uwot)
+library(dbscan)
+
+set.seed(123)
+
+# 1. NA -> 0
+pca_mat_no_log <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  as.matrix()
+
+# 2. PCA BEZ log-transform
+pca_res_no_log <- prcomp(
+  pca_mat_no_log,
+  center = TRUE,
+  scale. = TRUE
+)
+
+var_explained_no_log <- (pca_res_no_log$sdev^2) / sum(pca_res_no_log$sdev^2) * 100
+
+# bierzemy pierwsze 5 PC
+X_pca_no_log <- pca_res_no_log$x[, 1:5, drop = FALSE]
+
+# 3. UMAP na PCA
+umap_no_log <- umap(
+  X_pca_no_log,
+  n_neighbors = 10,
+  min_dist = 0.2,
+  metric = "euclidean"
+)
+
+umap_df_no_log <- as.data.frame(umap_no_log)
+colnames(umap_df_no_log) <- c("UMAP1", "UMAP2")
+
+# 4. DBSCAN na PCA
+kNNdistplot(X_pca_no_log, k = 5)
+abline(h = 0.8, col = "red", lwd = 2)
+
+db_no_log <- dbscan(
+  X_pca_no_log,
+  eps = 0.8,
+  minPts = 5
+)
+
+table(db_no_log$cluster)
+
+# 5. PCA plot
+pca_df_no_log <- as.data.frame(pca_res_no_log$x)
+pca_df_no_log$cluster <- factor(db_no_log$cluster)
+
+ggplot(pca_df_no_log, aes(PC1, PC2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "PCA - no log transform",
+    subtitle = "NA replaced with 0, DBSCAN on PCA",
+    x = paste0("PC1 (", round(var_explained_no_log[1], 1), "%)"),
+    y = paste0("PC2 (", round(var_explained_no_log[2], 1), "%)"),
+    color = "Cluster"
+  )
+
+# 6. UMAP plot
+umap_df_no_log$cluster <- factor(db_no_log$cluster)
+
+ggplot(umap_df_no_log, aes(UMAP1, UMAP2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "UMAP - no log transform",
+    subtitle = "DBSCAN performed on PCA",
+    color = "Cluster"
+  )
+```
+
+# Analiza z NA zamienionyn na mean zamiast 0
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(uwot)
+library(dbscan)
+
+set.seed(123)
+
+# 1. NA -> mean
+pca_mat_mean <- df_gated_pct_live %>%
+  mutate(across(
+    everything(),
+    ~ {
+      x <- .x
+      x[is.na(x)] <- mean(x, na.rm = TRUE)
+      x
+    }
+  )) %>%
+  as.matrix()
+
+# 2. log-transform
+pca_mat_mean_log <- log1p(pca_mat_mean)
+
+# 3. PCA
+pca_res_mean <- prcomp(
+  pca_mat_mean_log,
+  center = TRUE,
+  scale. = TRUE
+)
+
+var_explained_mean <- (pca_res_mean$sdev^2) / sum(pca_res_mean$sdev^2) * 100
+
+X_pca_mean <- pca_res_mean$x[, 1:5, drop = FALSE]
+
+# 4. UMAP na PCA
+umap_mean <- umap(
+  X_pca_mean,
+  n_neighbors = 10,
+  min_dist = 0.2,
+  metric = "euclidean"
+)
+
+umap_df_mean <- as.data.frame(umap_mean)
+colnames(umap_df_mean) <- c("UMAP1", "UMAP2")
+
+# 5. DBSCAN na PCA
+kNNdistplot(X_pca_mean, k = 5)
+abline(h = 0.8, col = "red", lwd = 2)
+
+db_mean <- dbscan(
+  X_pca_mean,
+  eps = 0.8,
+  minPts = 5
+)
+
+table(db_mean$cluster)
+
+# 6. PCA plot
+pca_df_mean <- as.data.frame(pca_res_mean$x)
+pca_df_mean$cluster <- factor(db_mean$cluster)
+
+ggplot(pca_df_mean, aes(PC1, PC2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "PCA - NA replaced with mean",
+    subtitle = "log1p transform, DBSCAN on PCA",
+    x = paste0("PC1 (", round(var_explained_mean[1], 1), "%)"),
+    y = paste0("PC2 (", round(var_explained_mean[2], 1), "%)"),
+    color = "Cluster"
+  )
+
+# 7. UMAP plot
+umap_df_mean$cluster <- factor(db_mean$cluster)
+
+ggplot(umap_df_mean, aes(UMAP1, UMAP2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "UMAP - NA replaced with mean",
+    subtitle = "DBSCAN performed on PCA",
+    color = "Cluster"
+  )
+```
+
+# Analiza z DBSCAN na UMAP zamiast na PCA
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(uwot)
+library(dbscan)
+
+set.seed(123)
+
+# 1. NA -> 0
+pca_mat_umap_db <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  as.matrix()
+
+# 2. log-transform
+pca_mat_umap_db_log <- log1p(pca_mat_umap_db)
+
+# 3. PCA
+pca_res_umap_db <- prcomp(
+  pca_mat_umap_db_log,
+  center = TRUE,
+  scale. = TRUE
+)
+
+var_explained_umap_db <- (pca_res_umap_db$sdev^2) / sum(pca_res_umap_db$sdev^2) * 100
+
+X_pca_umap_db <- pca_res_umap_db$x[, 1:5, drop = FALSE]
+
+# 4. UMAP na PCA
+umap_umap_db <- umap(
+  X_pca_umap_db,
+  n_neighbors = 10,
+  min_dist = 0.2,
+  metric = "euclidean"
+)
+
+umap_df_umap_db <- as.data.frame(umap_umap_db)
+colnames(umap_df_umap_db) <- c("UMAP1", "UMAP2")
+
+# 5. DBSCAN na UMAP
+kNNdistplot(umap_umap_db, k = 5)
+abline(h = 0.8, col = "red", lwd = 2)
+
+db_umap_db <- dbscan(
+  umap_umap_db,
+  eps = 0.8,
+  minPts = 5
+)
+
+table(db_umap_db$cluster)
+
+# 6. PCA plot
+pca_df_umap_db <- as.data.frame(pca_res_umap_db$x)
+pca_df_umap_db$cluster <- factor(db_umap_db$cluster)
+
+ggplot(pca_df_umap_db, aes(PC1, PC2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "PCA - DBSCAN on UMAP",
+    subtitle = "log1p transform, NA replaced with 0",
+    x = paste0("PC1 (", round(var_explained_umap_db[1], 1), "%)"),
+    y = paste0("PC2 (", round(var_explained_umap_db[2], 1), "%)"),
+    color = "Cluster"
+  )
+
+# 7. UMAP plot
+umap_df_umap_db$cluster <- factor(db_umap_db$cluster)
+
+ggplot(umap_df_umap_db, aes(UMAP1, UMAP2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "UMAP - DBSCAN on UMAP",
+    subtitle = "log1p transform, NA replaced with 0",
+    color = "Cluster"
+  )
+```
+
+# Wszystkie 3 zmiany
+
+-   bez log-transform
+
+-   NA zamienione na mean zamiast 0
+
+-    DBSCAN na UMAP zamiast na PCA
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(uwot)
+library(dbscan)
+
+set.seed(123)
+
+# 1. NA -> mean
+pca_mat_all_changes <- df_gated_pct_live %>%
+  mutate(across(
+    everything(),
+    ~ {
+      x <- .x
+      x[is.na(x)] <- mean(x, na.rm = TRUE)
+      x
+    }
+  )) %>%
+  as.matrix()
+
+# 2. PCA BEZ log-transform
+pca_res_all_changes <- prcomp(
+  pca_mat_all_changes,
+  center = TRUE,
+  scale. = TRUE
+)
+
+var_explained_all_changes <- (pca_res_all_changes$sdev^2) / sum(pca_res_all_changes$sdev^2) * 100
+
+# bierzemy pierwsze 5 PC
+X_pca_all_changes <- pca_res_all_changes$x[, 1:5, drop = FALSE]
+
+# 3. UMAP na PCA
+umap_all_changes <- umap(
+  X_pca_all_changes,
+  n_neighbors = 10,
+  min_dist = 0.2,
+  metric = "euclidean"
+)
+
+umap_df_all_changes <- as.data.frame(umap_all_changes)
+colnames(umap_df_all_changes) <- c("UMAP1", "UMAP2")
+
+# 4. DBSCAN na UMAP
+kNNdistplot(umap_all_changes, k = 5)
+abline(h = 0.8, col = "red", lwd = 2)
+
+db_all_changes <- dbscan(
+  umap_all_changes,
+  eps = 0.8,
+  minPts = 5
+)
+
+table(db_all_changes$cluster)
+
+# 5. PCA plot
+pca_df_all_changes <- as.data.frame(pca_res_all_changes$x)
+pca_df_all_changes$cluster <- factor(db_all_changes$cluster)
+
+ggplot(pca_df_all_changes, aes(PC1, PC2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "PCA - all changes applied",
+    subtitle = "no log transform, NA replaced with mean, DBSCAN on UMAP",
+    x = paste0("PC1 (", round(var_explained_all_changes[1], 1), "%)"),
+    y = paste0("PC2 (", round(var_explained_all_changes[2], 1), "%)"),
+    color = "Cluster"
+  )
+
+# 6. UMAP plot
+umap_df_all_changes$cluster <- factor(db_all_changes$cluster)
+
+ggplot(umap_df_all_changes, aes(UMAP1, UMAP2, color = cluster)) +
+  geom_point(size = 3, alpha = 0.85) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "UMAP - all changes applied",
+    subtitle = "no log transform, NA replaced with mean, DBSCAN on UMAP",
+    color = "Cluster"
+  )
+```
