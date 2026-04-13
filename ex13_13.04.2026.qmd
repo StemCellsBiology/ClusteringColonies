@@ -1,0 +1,358 @@
+---
+title: "ex13_13.04.2026"
+author: "Maya Śliwa"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(uwot)
+library(dbscan)
+setwd("~/Desktop/Szade_Lab/aktualne")
+```
+
+```{r}
+# lista kolumn cytometrycznych 
+cyto_cols <- c(
+  "all_events",
+  "singlets_cells",
+  "Live_dead_Ly6C_subset",
+  "FSC_A_medium_SSC_A_high",
+  "FSC_low.SSC_low",
+  "FSChigh_SSChigh",
+  "FSClow_SSC_high",
+  "SSC_low_FSC_high",
+  "cKit_neg",
+  "low6C_mono",
+  "CD16_32neg_CD71hi",
+  "Ter119neg_CD105pos",
+  "Ter119pos_CD105pos",
+  "Ter119pos_CD105neg",
+  "Ter119neg_CD105neg",
+  "CD16_32pos_CD71hi",
+  "CD16_32neg_CD71pos",
+  "CD16_32low_CD71low",
+  "CD16_32neg_CD71neg",
+  "monocytes_1",
+  "FcR_hi",
+  "FcR_low",
+  "FcR_neg",
+  "neutrophils",
+  "non_mielo_wide",
+  "Ter119_pos_CD16_32neg",
+  "CD71high_Ter119neg",
+  "CD71pos_Ter119low",
+  "CD71pos_Ter119neg",
+  "non_mielo",
+  "early_baso",
+  "late_baso",
+  "polychrom",
+  "proerythro",
+  "Q1_CD150neg_CD105pos",
+  "Q2_CD150pos_CD105pos",
+  "Q3_CD150pos_CD105neg",
+  "Q4_CD150neg_CD105neg",
+  "cKit_pos",
+  "CD150pos_CD16_32neg",
+  "GMP_1",
+  "GMP_2",
+  "non_GMP",
+  "CMP_1",
+  "CFUE",
+  "preCFUE",
+  "preGM",
+  "preMegE",
+  "CD71pos_CD34neg",
+  "CMP_1_CD71pos_CD105neg",
+  "CMP_1_CD71pos_CD105pos",
+  "CMP_2",
+  "trombo"
+)
+
+# wczytanie danych
+df <- read_excel("ERC_aim1_exp13_summary.xlsx") 
+
+# OBIEKT R z samą cytometrią
+df_cyto <- df %>%
+  select(all_of(cyto_cols))
+
+# normalizacja % of live dla wszystkich
+denom <- "Live_dead_Ly6C_subset"
+gate_cols <- setdiff(colnames(df_cyto), denom)
+
+df_cyto_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gate_cols),
+      ~ ifelse(.data[[denom]] == 0 | is.na(.data[[denom]]), NA_real_, (.x / .data[[denom]]) * 100),
+      .names = "{.col}_pct_live"
+    )
+  )
+
+#normalizacja % of live dla zgatowanych populacji (WSZYSTKIE minus pierwsze 3) UWAGA
+gated_populations <- c(
+  "FSC_A_medium_SSC_A_high",
+  "FSC_low.SSC_low",
+  "FSChigh_SSChigh",
+  "FSClow_SSC_high",
+  "SSC_low_FSC_high",
+  "cKit_neg",
+  "low6C_mono",
+  "CD16_32neg_CD71hi",
+  "Ter119neg_CD105pos",
+  "Ter119pos_CD105pos",
+  "Ter119pos_CD105neg",
+  "Ter119neg_CD105neg",
+  "CD16_32pos_CD71hi",
+  "CD16_32neg_CD71pos",
+  "CD16_32low_CD71low",
+  "CD16_32neg_CD71neg",
+  "monocytes_1",
+  "FcR_hi",
+  "FcR_low",
+  "FcR_neg",
+  "neutrophils",
+  "non_mielo_wide",
+  "Ter119_pos_CD16_32neg",
+  "CD71high_Ter119neg",
+  "CD71pos_Ter119low",
+  "CD71pos_Ter119neg",
+  "non_mielo",
+  "early_baso",
+  "late_baso",
+  "polychrom",
+  "proerythro",
+  "Q1_CD150neg_CD105pos",
+  "Q2_CD150pos_CD105pos",
+  "Q3_CD150pos_CD105neg",
+  "Q4_CD150neg_CD105neg",
+  "cKit_pos",
+  "CD150pos_CD16_32neg",
+  "GMP_1",
+  "GMP_2",
+  "non_GMP",
+  "CMP_1",
+  "CFUE",
+  "preCFUE",
+  "preGM",
+  "preMegE",
+  "CD71pos_CD34neg",
+  "CMP_1_CD71pos_CD105neg",
+  "CMP_1_CD71pos_CD105pos",
+  "CMP_2",
+  "trombo"
+)
+
+denom <- "Live_dead_Ly6C_subset"
+df_gated_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gated_populations),
+      ~ ifelse(
+        .data[[denom]] == 0 | is.na(.data[[denom]]),
+        NA_real_,
+        (.x / .data[[denom]]) * 100
+      ),
+      .names = "{.col}_pct_live"
+    )
+  ) %>%
+  select(ends_with("_pct_live"))
+```
+
+# Wersja z log transform
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(dbscan)
+library(uwot)
+
+set.seed(123)
+
+# 1. NA -> 0
+pca_mat <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  as.matrix()
+
+# 2. log-transform
+pca_mat_log <- log1p(pca_mat)
+
+# 3. PCA z log-transform
+pca_res <- prcomp(
+  pca_mat_log,
+  center = TRUE,
+  scale. = TRUE
+)
+
+# procent wariancji wyjaśnionej przez każdy PC
+var_explained <- (pca_res$sdev^2) / sum(pca_res$sdev^2)
+
+# w procentach
+var_explained_percent <- var_explained * 100
+
+var_explained_percent
+
+# 4. bierzemy pierwsze 15 PC
+pca_data <- pca_res$x[, 1:15, drop = FALSE]
+
+library(uwot)
+
+# UMAP
+umap_res <- uwot::umap(pca_data)
+
+# do ramki danych
+umap_df <- data.frame(
+  UMAP1 = umap_res[,1],
+  UMAP2 = umap_res[,2]
+)
+
+head(umap_df)
+
+library(ggplot2)
+
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2)) +
+  geom_point(size = 2) +
+  theme_minimal()
+
+library(dbscan)
+
+kNNdistplot(umap_res, k = 5)
+abline(h = 0.5, col = "red", lty = 2)
+
+db <- dbscan(umap_res, eps = 0.5, minPts = 5) #EPS WYBRANE Z WYKRESU!!!
+
+umap_df$cluster <- as.factor(db$cluster)
+
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
+
+# Wersja z wizualizacją klastrów na PCA
+
+```{r}
+set.seed(123)
+
+# 1. NA -> 0
+pca_mat <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  as.matrix()
+
+# 2.PCA bez log-transform
+pca_res <- prcomp(
+  pca_mat,
+  center = TRUE,
+  scale. = TRUE
+)
+
+#procent wariancji wyjaśnionej przez każdy PC
+var_explained <- (pca_res$sdev^2) / sum(pca_res$sdev^2)
+var_explained_percent <- var_explained * 100
+var_explained_percent
+
+# 3. bierzemy pierwsze 15 PC
+pca_data <- pca_res$x[, 1:15, drop = FALSE]
+
+#ramka do wizualizacji 2D
+pca_df <- data.frame(
+  PC1 = pca_res$x[, 1],
+  PC2 = pca_res$x[, 2]
+)
+
+head(pca_df)
+
+library(ggplot2)
+
+ggplot(pca_df, aes(x = PC1, y = PC2)) +
+  geom_point(size = 2) +
+  theme_minimal()
+
+library(dbscan)
+
+#wykres kNN distance dla PCA
+kNNdistplot(pca_data, k = 5)
+abline(h = 3, col = "red", lty = 2)   
+
+#DBSCAN na PCA, a nie na UMAP
+db <- dbscan(pca_data, eps = 3.5, minPts = 5) #EPS dobrane z wykresu!!!!
+
+#zapis klastrów do ramki
+pca_df$cluster <- as.factor(db$cluster)
+
+#wizualizacja klastrów na pierwszych dwóch składowych PCA
+ggplot(pca_df, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
+
+# Analiza Orginalna z 10.04.2026
+
+```{r}
+set.seed(123)
+
+# 1. NA -> 0
+pca_mat <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ replace_na(.x, 0))) %>%
+  as.matrix()
+
+# 2. PCA bez log-transform
+pca_res <- prcomp(
+  pca_mat,
+  center = TRUE,
+  scale. = TRUE
+)
+# procent wariancji wyjaśnionej przez każdy PC
+var_explained <- (pca_res$sdev^2) / sum(pca_res$sdev^2)
+
+# w procentach
+var_explained_percent <- var_explained * 100
+
+var_explained_percent
+
+# 3. bierzemy pierwsze 15 PC
+pca_data <- pca_res$x[, 1:15, drop = FALSE]
+
+library(uwot)
+# UMAP
+umap_res <- uwot::umap(pca_data)
+
+# do ramki danych
+umap_df <- data.frame(
+  UMAP1 = umap_res[,1],
+  UMAP2 = umap_res[,2]
+)
+
+head(umap_df)
+library(ggplot2)
+
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2)) +
+  geom_point(size = 2) +
+  theme_minimal()
+
+library(dbscan)
+
+kNNdistplot(umap_res, k = 5)
+abline(h = 0.5, col = "red", lty = 2)
+
+library(dbscan)
+
+db <- dbscan(umap_res, eps = 0.5, minPts = 5) # wybrane z wykresu elbow powyżej!!!
+
+umap_df$cluster <- as.factor(db$cluster)
+
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
