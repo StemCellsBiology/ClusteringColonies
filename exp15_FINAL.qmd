@@ -1,0 +1,193 @@
+---
+title: "exp15_FINAL"
+author: "Maya Śliwa"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+library(readxl)
+library(dplyr)
+library(writexl)
+library(dplyr)
+library(tidyr)
+setwd("~/Desktop/Szade_Lab/aktualne")
+```
+
+```{r}
+cyto_cols <- c(
+  "all_events",
+  "singlets_cells",
+  "Live_dead_Ly6C_subset",
+  "cKit_neg",
+  "low6c_mono",
+  "monocytes_1",
+  "neutrophils",
+  "non_mielo",
+  "FcR_neg",
+  "CD150neg_CD105pos",
+  "CD150pos_CD105pos",
+  "CD150pos_CD105neg",
+  "CD150neg_CD105neg",
+  "cKit_pos",
+  "GMP",
+  "non_GMP",
+  "CFU_E",
+  "CMP",
+  "preCFUE",
+  "preGM",
+  "preMegE",
+  "trombo"
+)
+
+# wczytanie danych
+df <- read_excel("ERC_aim1_exp15_summary.xlsx") 
+
+# OBIEKT R z samą cytometrią
+df_cyto <- df %>%
+  select(all_of(cyto_cols))
+
+# normalizacja % of live dla wszystkich
+denom <- "Live_dead_Ly6C_subset"
+gate_cols <- setdiff(colnames(df_cyto), denom)
+
+df_cyto_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gate_cols),
+      ~ ifelse(.data[[denom]] == 0 | is.na(.data[[denom]]), NA_real_, (.x / .data[[denom]]) * 100),
+      .names = "{.col}_pct_live"
+    )
+  )
+
+#normalizacja % of live dla zgatowanych populacji
+gated_populations <- c(
+  "cKit_neg",
+  "low6c_mono",
+  "monocytes_1",
+  "neutrophils",
+  "non_mielo",
+  "FcR_neg",
+  "CD150neg_CD105pos",
+  "CD150pos_CD105pos",
+  "CD150pos_CD105neg",
+  "CD150neg_CD105neg",
+  "cKit_pos",
+  "GMP",
+  "non_GMP",
+  "CFU_E",
+  "CMP",
+  "preCFUE",
+  "preGM",
+  "preMegE",
+  "trombo"
+)
+
+denom <- "Live_dead_Ly6C_subset"
+df_gated_pct_live <- df_cyto %>%
+  mutate(
+    across(
+      all_of(gated_populations),
+      ~ ifelse(
+        .data[[denom]] == 0 | is.na(.data[[denom]]),
+        NA_real_,
+        (.x / .data[[denom]]) * 100
+      ),
+      .names = "{.col}_pct_live"
+    )
+  ) %>%
+  select(ends_with("_pct_live"))
+```
+
+```{r}
+set.seed(123)
+
+# 1. NA -> 0
+pca_df <- df_gated_pct_live %>%
+  mutate(across(everything(), ~ replace_na(.x, 0)))
+
+# usuwamy kolumny o zerowej wariancji
+zero_var_cols <- pca_df %>%
+  summarise(across(everything(), ~ var(.x, na.rm = TRUE))) %>%
+  pivot_longer(cols = everything(), names_to = "col", values_to = "var") %>%
+  filter(is.na(var) | var == 0) %>%
+  pull(col)
+
+zero_var_cols
+
+pca_df_filtered <- pca_df %>%
+  select(-all_of(zero_var_cols))
+
+# macierz do PCA
+pca_mat <- as.matrix(pca_df_filtered)
+
+# PCA bez log-transform
+pca_res <- prcomp(
+  pca_mat,
+  center = TRUE,
+  scale. = TRUE
+)
+
+# procent wariancji wyjaśnionej
+var_explained <- (pca_res$sdev^2) / sum(pca_res$sdev^2)
+var_explained_percent <- var_explained * 100
+
+var_explained_percent
+cumsum(var_explained_percent)
+```
+
+Bierzemy pierwsze 6 PC\
+PC6 → 80.70%
+
+```{r}
+# 3. bierzemy pierwsze 6 PC
+pca_data <- pca_res$x[, 1:6, drop = FALSE]
+```
+
+```{r}
+library(uwot)
+# UMAP
+umap_res <- uwot::umap(pca_data)
+
+# do ramki danych
+umap_df <- data.frame(
+  UMAP1 = umap_res[,1],
+  UMAP2 = umap_res[,2]
+)
+
+head(umap_df)
+library(ggplot2)
+
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
+
+Chcę zrobić teraz DBSCAN i wybrać odpowiedni parametr eps, więc zastosuje metodę elbow:
+
+```{r}
+library(dbscan)
+
+kNNdistplot(umap_res, k = 5)
+abline(h = 0.5, col = "red", lty = 2)
+```
+
+```{r}
+library(dbscan)
+
+db <- dbscan(umap_res, eps = 0.35, minPts = 5) # wybrane z wykresu elbow powyżej!!!
+
+umap_df$cluster <- as.factor(db$cluster)
+
+ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = cluster)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
