@@ -284,3 +284,125 @@ ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = cluster)) +
   geom_point(size = 2) +
   theme_minimal()
 ```
+Co jest w klastrach?
+
+```{r}
+umap_df$cluster <- as.factor(db$cluster)
+
+df_clusters <- df_gated_pct_live %>%
+  mutate(cluster = as.factor(db$cluster))
+
+table(df_clusters$cluster)
+
+cluster_summary <- df_clusters %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean, na.rm = TRUE))
+```
+
+```{r}
+library(dplyr)
+
+df_clusters %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), sd, na.rm = TRUE))
+```
+
+Shannon Index
+
+```{r}
+shannon_index <- function(x) {
+  x <- x[x > 0]              
+  p <- x / sum(x)         
+  -sum(p * log(p))
+}
+
+df_clusters$shannon <- apply(
+  df_gated_pct_live,
+  1,
+  shannon_index
+)
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(df_clusters, aes(x = cluster, y = shannon, fill = cluster)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Shannon diversity per cluster")
+```
+
+```{r}
+kruskal.test(shannon ~ cluster, data = df_clusters)
+```
+
+```{r}
+df_clusters %>%
+  group_by(cluster) %>%
+  summarise(mean_shannon = mean(shannon))
+```
+
+Profil fenotypowy klastra
+
+```{r}
+df_clusters <- df_gated_pct_live %>%
+  mutate(cluster = as.factor(db$cluster))
+
+cluster_means <- df_clusters %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean, na.rm = TRUE))
+```
+
+```{r}
+library(tibble)
+
+# globalne średnie i SD
+global_mean <- colMeans(df_gated_pct_live, na.rm = TRUE)
+global_sd   <- apply(df_gated_pct_live, 2, sd, na.rm = TRUE)
+
+# funkcja do z-score
+zscore <- function(x, mean, sd) {
+  (x - mean) / sd
+}
+
+# profil fenotypowy (z-score)
+cluster_profile <- cluster_means %>%
+  column_to_rownames("cluster") %>%
+  as.matrix()
+
+cluster_profile_z <- sweep(cluster_profile, 2, global_mean, "-")
+cluster_profile_z <- sweep(cluster_profile_z, 2, global_sd, "/")
+```
+
+```{r}
+library(pheatmap)
+
+pheatmap(
+  cluster_profile_z,
+  scale = "none",
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  main = "Phenotypic profile of clusters (z-score)"
+)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+cluster_long <- as.data.frame(cluster_profile_z) %>%
+  rownames_to_column("cluster") %>%
+  pivot_longer(-cluster, names_to = "feature", values_to = "z")
+
+# top 5 ↑ i ↓ dla każdego klastra
+top_features <- cluster_long %>%
+  group_by(cluster) %>%
+  arrange(desc(z)) %>%
+  slice_head(n = 5) %>%
+  bind_rows(
+    cluster_long %>%
+      group_by(cluster) %>%
+      arrange(z) %>%
+      slice_head(n = 5)
+  )
+```
