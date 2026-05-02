@@ -118,11 +118,12 @@ hist(log_data_3,
 ### ERC_aim_exp13_summary
 
 ```{r}
+library(tidyverse)
+
 #| colab: {base_uri: https://localhost:8080/, height: 371}
 #| collapsed: true
 library(readxl)
 df_13 <- read_excel("../data/ERC_aim1_exp13_summary1.xlsx")
-head(df_13)
 ```
 
 ```{r}
@@ -1896,4 +1897,177 @@ leiden przy resolution 1 daje największą modularność
 
 ```{r}
 
+```
+
+
+## UMPAPs
+
+### UMAP exp9
+```{r}
+cumvar_9 <- cumsum(pca_var_per_9)
+cumvar_9
+
+# Ile PC potrzeba do 80% wariancji
+n_pc_9 <- which(cumvar_9 >= 80)[1]
+cat("PC potrzebne do wyjaśnienia 80% wariancji:", n_pc_9, "\n")
+cat("Skumulowana wariancja dla", n_pc_9, "PC:", cumvar_9[n_pc_9], "%\n")
+```
+
+```{r}
+library(uwot)
+
+
+pca_data_9 <- pca_9$x[, 1:8, drop = FALSE]
+
+# UMAP
+umap_9 <- uwot::umap(pca_data_9)
+
+# do ramki danych
+umap_df_9 <- data.frame(
+  UMAP1 = umap_9[,1],
+  UMAP2 = umap_9[,2]
+)
+
+head(umap_df_9)
+```
+```{r}
+ggplot(umap_df_9, aes(x = UMAP1, y = UMAP2)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
+
+### UMAP exp15
+```{r}
+cumvar_15 <- cumsum(pca_var_per_15)
+cumvar_15
+
+# Ile PC potrzeba do 80% wariancji
+n_pc_15 <- which(cumvar_15 >= 80)[1]
+cat("PC potrzebne do wyjaśnienia 80% wariancji:", n_pc_15, "\n")
+cat("Skumulowana wariancja dla", n_pc_15, "PC:", cumvar_15[n_pc_15], "%\n")
+```
+
+```{r}
+library(uwot)
+
+
+pca_data_15 <- pca_15$x[, 1:7, drop = FALSE]
+
+# UMAP
+umap_15 <- uwot::umap(pca_data_15)
+
+# do ramki danych
+umap_df_15 <- data.frame(
+  UMAP1 = umap_15[,1],
+  UMAP2 = umap_15[,2]
+)
+```
+
+```{r}
+ggplot(umap_df_15, aes(x = UMAP1, y = UMAP2)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
+
+### UMAP exp13
+
+```{r}
+cumvar_13 <- cumsum(pca_var_per_13)
+cumvar_13
+
+# Ile PC potrzeba
+n_pc_13 <- which(cumvar_13 >= 80)[1]
+cat("PC potrzebne do wyjaśnienia 80% wariancji:", n_pc_13, "\n")
+cat("Skumulowana wariancja dla", n_pc_13, "PC:", cumvar_13[n_pc_13], "%\n")
+```
+
+```{r}
+library(uwot)
+
+
+pca_data_13 <- pca_13$x[, 1:7, drop = FALSE]
+
+# UMAP
+umap_13 <- uwot::umap(pca_data_13)
+
+# do ramki danych
+umap_df_13 <- data.frame(
+  UMAP1 = umap_13[,1],
+  UMAP2 = umap_13[,2]
+)
+```
+
+```{r}
+ggplot(umap_df_13, aes(x = UMAP1, y = UMAP2)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
+
+### UMAP exp_Mateusz
+
+```{r}
+cumvar_mat <- cumsum(pca_var_per_mat)
+cumvar_mat
+
+# Ile PC potrzeba do 80% wariancji
+n_pc_mat <- which(cumvar_mat >= 80)[1]
+cat("PC potrzebne do wyjaśnienia 80% wariancji:", n_pc_mat, "\n")
+cat("Skumulowana wariancja dla", n_pc_mat, "PC:", cumvar_mat[n_pc_mat], "%\n")
+```
+
+```{r}
+library(uwot)
+
+
+pca_data_mat <- pca_mat$x[, 1:7, drop = FALSE]
+
+# UMAP
+umap_mat <- uwot::umap(pca_data_mat)
+
+# do ramki danych
+umap_df_mat <- data.frame(
+  UMAP1 = umap_mat[,1],
+  UMAP2 = umap_mat[,2]
+)
+```
+
+```{r}
+ggplot(umap_df_mat, aes(x = UMAP1, y = UMAP2)) +
+  geom_point(size = 2) +
+  theme_minimal()
+```
+
+
+### UMAP exp_rsm
+
+```{r}
+cumvar_rsm <- cumsum(pca_var_per_rsm)
+cumvar_rsm
+
+# Ile PC potrzeba do 80% wariancji
+n_pc_rsm <- which(cumvar_rsm >= 80)[1]
+cat("PC potrzebne do wyjaśnienia 80% wariancji:", n_pc_rsm, "\n")
+cat("Skumulowana wariancja dla", n_pc_rsm, "PC:", cumvar_rsm[n_pc_rsm], "%\n")
+```
+
+```{r}
+library(uwot)
+
+
+pca_data_rsm <- pca_rsm$x[, 1:5, drop = FALSE]
+
+# UMAP
+umap_rsm <- uwot::umap(pca_data_rsm)
+
+# do ramki danych
+umap_df_rsm <- data.frame(
+  UMAP1 = umap_rsm[,1],
+  UMAP2 = umap_rsm[,2]
+)
+```
+
+```{r}
+ggplot(umap_df_rsm, aes(x = UMAP1, y = UMAP2)) +
+  geom_point(size = 2) +
+  theme_minimal()
 ```
