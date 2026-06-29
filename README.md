@@ -102,6 +102,6 @@ An additional analysis branch was performed for index sorting data. The pipeline
 
 4. Visualization of z-score marker intensity on PCA.
 
-5.Projection of index sorting marker z-scores onto UMAP clusters.
+5. Projection of index sorting marker z-scores onto UMAP clusters.
 
 This branch helped compare cluster structure with marker-level information from index sorting.
