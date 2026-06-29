@@ -27,12 +27,20 @@ Examples of analyzed cell populations include: monocytes, neutrophils,cKit-posit
 
 <h4> Analysis pipeline </h4>
 The analysis pipeline consists of the following steps:
+
 1. Loading flow cytometry summary data.
+
 2. Selecting relevant gated cell population columns.
+
 3. Normalizing selected populations as percentages of live cells.
+
 4. Replacing missing values with zero.
+
 5. Performing dimensionality reduction using PCA.
+
 6. Applying UMAP for two-dimensional visualization.
+
 7. Detecting clusters using DBSCAN.
+
 8. Characterizing clusters using z-scores, Shannon diversity, and top enriched/depleted features.
 9. Interpreting clusters based on their phenotypic profiles.
