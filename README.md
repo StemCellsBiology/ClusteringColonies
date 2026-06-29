@@ -25,7 +25,7 @@ The input data consist of flow cytometry summary tables. Each row represents a s
 
 Examples of analyzed cell populations include: monocytes, neutrophils,cKit-positive progenitors,GMP populations,erythroid lineage populations, CD71-positive subsets,Ter119-related subsets, FcR-positive and FcR-negative populations, CD150/CD105 quadrants, non-myeloid populations.
 
-<h4> Analysis pipeline </h4>
+<h4> Analysis pipeline (done by Maya Śliwa) </h4> 
 The analysis pipeline consists of the following steps:
 
 1. Loading flow cytometry summary data.
@@ -90,3 +90,18 @@ shannon_index <- function(x) {
   p <- x / sum(x)
   -sum(p * log(p))
 }
+
+<h4> Index sorting branch (done by Hanna Milnikel and Aleksandra Pacułt) </h4> 
+An additional analysis branch was performed for index sorting data. The pipeline included:
+
+1. Log10 transformation of raw data.
+
+2. Z-score scaling.
+
+3. PCA.
+
+4. Visualization of z-score marker intensity on PCA.
+
+5.Projection of index sorting marker z-scores onto UMAP clusters.
+
+This branch helped compare cluster structure with marker-level information from index sorting.
