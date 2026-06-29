@@ -6,27 +6,24 @@ The analysis was performed across several experiments, with the same general pip
 Flow cytometry data contain multiple gated cell populations representing different immune, progenitor, erythroid, and myeloid cell subsets. In this project, these populations were used as features for unsupervised clustering.
 
 The main objectives were to:
+
 --> preprocess flow cytometry summary data,
+
 --> normalize selected cell populations to the percentage of live cells,
+
 --> reduce dimensionality using PCA and UMAP,
+
 --> identify clusters using DBSCAN,
+
 --> characterize each cluster based on enriched and depleted cell populations,
+
 --> interpret clusters as biologically meaningful phenotypic states.
+
 
 <h4> Input data </h4>
 The input data consist of flow cytometry summary tables. Each row represents a sample or event summary, while selected columns correspond to gated cell populations.
 
-Examples of analyzed cell populations include:
---> monocytes,
--->neutrophils,
---> cKit-positive progenitors,
---> GMP populations,
---> erythroid lineage populations,
---> CD71-positive subsets,
---> Ter119-related subsets,
---> FcR-positive and FcR-negative populations,
--->CD150/CD105 quadrants,
---> non-myeloid populations.
+Examples of analyzed cell populations include: monocytes, neutrophils,cKit-positive progenitors,GMP populations,erythroid lineage populations, CD71-positive subsets,Ter119-related subsets, FcR-positive and FcR-negative populations, CD150/CD105 quadrants, non-myeloid populations.
 
 <h4> Analysis pipeline </h4>
 The analysis pipeline consists of the following steps:
