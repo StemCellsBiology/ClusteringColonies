@@ -105,3 +105,9 @@ An additional analysis branch was performed for index sorting data. The pipeline
 5. Projection of index sorting marker z-scores onto UMAP clusters.
 
 This branch helped compare cluster structure with marker-level information from index sorting.
+
+<h4> Project aim </h4> 
+This project provides an unsupervised workflow for detecting phenotypic structure in flow cytometry data. By combining dimensionality reduction, density-based clustering, and biological feature interpretation, the analysis helps identify meaningful cellular states across experiments.
+
+<h4> Authors </h4> 
+Hanna Milnikel, Aleksandra Pacułt, Maya Śliwa
