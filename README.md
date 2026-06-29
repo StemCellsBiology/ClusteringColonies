@@ -1,8 +1,8 @@
-Identification of Phenotypic Clusters in Flow Cytometry Data
+<h4> Identification of Phenotypic Clusters in Flow Cytometry Data </h4>
 This project focuses on the identification and characterization of phenotypic clusters in flow cytometry summary data. The main goal is to detect groups of samples with similar cellular composition and describe their biological phenotypes based on gated cell populations.
 The analysis was performed across several experiments, with the same general pipeline applied to each dataset.
 
-Project overview
+<h4> Project overview </h4>
 Flow cytometry data contain multiple gated cell populations representing different immune, progenitor, erythroid, and myeloid cell subsets. In this project, these populations were used as features for unsupervised clustering.
 
 The main objectives were to:
@@ -13,7 +13,7 @@ The main objectives were to:
 --> characterize each cluster based on enriched and depleted cell populations,
 --> interpret clusters as biologically meaningful phenotypic states.
 
-Input data
+<h4> Input data </h4>
 The input data consist of flow cytometry summary tables. Each row represents a sample or event summary, while selected columns correspond to gated cell populations.
 
 Examples of analyzed cell populations include:
@@ -28,7 +28,7 @@ Examples of analyzed cell populations include:
 -->CD150/CD105 quadrants,
 --> non-myeloid populations.
 
-Analysis pipeline
+<h4> Analysis pipeline </h4>
 The analysis pipeline consists of the following steps:
 1. Loading flow cytometry summary data.
 2. Selecting relevant gated cell population columns.
